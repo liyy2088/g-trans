@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BUILD_DIR="$ROOT_DIR/.build/direct-check"
+HARNESS="$BUILD_DIR/LogicCheck.swift"
+BIN="$BUILD_DIR/logic-check"
+
+cleanup() {
+  rm -rf "$BUILD_DIR"
+}
+trap cleanup EXIT
+
+mkdir -p "$BUILD_DIR"
+
+swiftc -parse-as-library -typecheck "$ROOT_DIR"/Sources/GTransCore/*.swift
+swiftc \
+  -parse-as-library \
+  -emit-module \
+  -module-name GTransCore \
+  "$ROOT_DIR"/Sources/GTransCore/*.swift \
+  -emit-module-path "$BUILD_DIR/GTransCore.swiftmodule"
+swiftc \
+  -parse-as-library \
+  -typecheck \
+  -I "$BUILD_DIR" \
+  "$ROOT_DIR"/Sources/GTrans/*.swift
+
+cat > "$HARNESS" <<'SWIFT'
+import Foundation
+
+func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+    if !condition() {
+        fputs("FAIL: \(message)\n", stderr)
+        exit(1)
+    }
+}
+
+@main
+struct LogicCheck {
+    static func main() async throws {
+        expect(LanguageDirection.targetLanguage(for: "Hello world", defaultTarget: .simplifiedChinese) == .simplifiedChinese, "English should translate to Simplified Chinese by default")
+        expect(LanguageDirection.targetLanguage(for: "你好世界", defaultTarget: .simplifiedChinese) == .english, "Simplified Chinese should switch to English")
+        expect(LanguageDirection.targetLanguage(for: "Hello world", defaultTarget: .english) == .simplifiedChinese, "English default should switch to Simplified Chinese for English source")
+
+        let client = LLMClient()
+        let config = AppConfiguration(baseURL: URL(string: "http://localhost:11434/v1/")!, model: "qwen3.5:2b-mlx")
+        let request = try client.makeRequest(
+            configuration: config,
+            apiKey: "ollama",
+            messages: [ChatMessage(role: "user", content: "Hi")],
+            stream: true
+        )
+        expect(request.url?.absoluteString == "http://localhost:11434/v1/chat/completions", "request URL")
+        expect(request.httpMethod == "POST", "HTTP method")
+        expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer ollama", "authorization header")
+        let body = try JSONDecoder().decode(ChatCompletionRequest.self, from: request.httpBody!)
+        expect(body.model == "qwen3.5:2b-mlx", "model")
+        expect(body.stream == true, "stream flag")
+        expect(body.temperature == 0, "temperature")
+        expect(body.maxTokens == 512, "max tokens")
+        expect(body.reasoning == ReasoningConfig(effort: "none"), "reasoning disabled")
+
+        var parser = StreamingChatParser()
+        let firstToken = try parser.parse(line: #"data: {"choices":[{"delta":{"content":"你"}}]}"#)
+        let secondToken = try parser.parse(line: #"data: {"choices":[{"delta":{"content":"好"}}]}"#)
+        let done = try parser.parse(line: "data: [DONE]")
+        expect(firstToken == ["你"], "first SSE token")
+        expect(secondToken == ["好"], "second SSE token")
+        expect(done.isEmpty, "done produces no token")
+        expect(parser.isDone, "done state")
+
+        let session = TranslationSession(sourceText: "Hello", targetLanguage: .simplifiedChinese)
+        await MainActor.run {
+            session.translation = "你好"
+            session.followUps = [FollowUpTurn(question: "解释用法", answer: "问候语")]
+            session.close()
+            expect(session.sourceText.isEmpty, "source cleared")
+            expect(session.translation.isEmpty, "translation cleared")
+            expect(session.followUps.isEmpty, "follow ups cleared")
+            expect(session.isClosed, "closed flag")
+        }
+
+        print("direct checks passed")
+    }
+}
+SWIFT
+
+swiftc "$ROOT_DIR"/Sources/GTransCore/*.swift "$HARNESS" -o "$BIN"
+"$BIN"
