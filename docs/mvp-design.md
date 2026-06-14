@@ -156,7 +156,7 @@ MVP 只支持一套 OpenAI-compatible 配置：
 - `temperature`：代码内固定为 `0`。
 - `timeout`：代码内固定为 `120s`。
 - `top_p`
-- `max_tokens`：代码内固定为 `512`。
+- `max_tokens`：代码内固定为 `2048`。
 - `reasoning`：本地 `localhost` / `127.0.0.1` endpoint 自动发送 `{"effort":"none"}`，避免本地推理模型输出无关 reasoning 或 `<pad>`。
 - 自定义 headers
 - 自定义 system prompt

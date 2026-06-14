@@ -58,7 +58,7 @@ model: qwen3.5:2b-mlx
 ```json
 {
   "temperature": 0,
-  "max_tokens": 512,
+  "max_tokens": 2048,
   "reasoning": { "effort": "none" }
 }
 ```

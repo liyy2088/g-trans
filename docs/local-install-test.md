@@ -230,7 +230,7 @@ event=status_item_installed
 
 修复：
 
-- GTrans 请求体加入 `max_tokens = 512`，避免本地模型无限生成。
+- GTrans 请求体加入 `max_tokens = 2048`，避免本地模型无限生成，同时降低长追问被截断的概率。
 - GTrans 请求超时从 `30s` 调整为 `120s`，覆盖本机 Ollama 模型冷启动和大 context 首轮推理。
 - 当前本机偏好已改为 `model = gemma4:12b-mlx`、`streamingEnabled = false`。
 

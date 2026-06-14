@@ -14,6 +14,14 @@ final class StreamingChatParserTests: XCTestCase {
         XCTAssertTrue(parser.isDone)
     }
 
+    func detectsLengthFinishReason() throws {
+        var parser = StreamingChatParser()
+        let tokens = try parser.parse(line: #"data: {"choices":[{"delta":{},"finish_reason":"length"}]}"#)
+
+        XCTAssertTrue(tokens.isEmpty)
+        XCTAssertTrue(parser.reachedTokenLimit)
+    }
+
     func ignoresEmptyAndNonDataLines() throws {
         var parser = StreamingChatParser()
         XCTAssertTrue(try parser.parse(line: "").isEmpty)

@@ -2,6 +2,7 @@ import Foundation
 
 public struct StreamingChatParser: Sendable {
     public private(set) var isDone = false
+    public private(set) var reachedTokenLimit = false
 
     public init() {}
 
@@ -22,7 +23,10 @@ public struct StreamingChatParser: Sendable {
 
         let data = Data(payload.utf8)
         let decoded = try JSONDecoder().decode(ChatCompletionChunk.self, from: data)
-        return decoded.choices.compactMap(\.delta.content)
+        if decoded.choices.contains(where: { $0.finishReason == "length" }) {
+            reachedTokenLimit = true
+        }
+        return decoded.choices.compactMap { $0.delta?.content }
     }
 }
 
@@ -31,7 +35,13 @@ private struct ChatCompletionChunk: Decodable {
         struct Delta: Decodable {
             var content: String?
         }
-        var delta: Delta
+        var delta: Delta?
+        var finishReason: String?
+
+        enum CodingKeys: String, CodingKey {
+            case delta
+            case finishReason = "finish_reason"
+        }
     }
     var choices: [Choice]
 }

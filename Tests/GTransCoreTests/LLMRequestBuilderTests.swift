@@ -25,7 +25,7 @@ final class LLMRequestBuilderTests: XCTestCase {
         XCTAssertEqual(decoded.model, "gemma4:12b-mlx")
         XCTAssertTrue(decoded.stream)
         XCTAssertEqual(decoded.temperature, 0)
-        XCTAssertEqual(decoded.maxTokens, 512)
+        XCTAssertEqual(decoded.maxTokens, LLMClient.maxOutputTokens)
         XCTAssertEqual(decoded.reasoning, ReasoningConfig(effort: "none"))
         XCTAssertEqual(decoded.messages, [ChatMessage(role: "user", content: "Hi")])
     }

@@ -47,6 +47,9 @@ public enum LLMClientError: Error, Equatable {
 }
 
 public struct LLMClient: Sendable {
+    public static let maxOutputTokens = 2048
+    public static let tokenLimitMessage = "\n\n（输出达到 token 上限，可能未完成。请重新生成或继续追问。）"
+
     private let session: URLSessionProtocol
 
     public init(session: URLSessionProtocol = URLSession.shared) {
@@ -71,7 +74,7 @@ public struct LLMClient: Sendable {
             model: configuration.model,
             messages: messages,
             temperature: 0,
-            maxTokens: 512,
+            maxTokens: Self.maxOutputTokens,
             reasoning: reasoningConfig(for: configuration.baseURL),
             stream: stream
         )
@@ -105,10 +108,15 @@ public struct LLMClient: Sendable {
         return AsyncThrowingStream { continuation in
             Task {
                 var parser = StreamingChatParser()
+                var didReportTokenLimit = false
                 do {
                     for try await line in lines {
                         for token in try parser.parse(line: line) {
                             continuation.yield(token)
+                        }
+                        if parser.reachedTokenLimit, !didReportTokenLimit {
+                            continuation.yield(Self.tokenLimitMessage)
+                            didReportTokenLimit = true
                         }
                         if parser.isDone {
                             break
@@ -131,11 +139,16 @@ public struct LLMClient: Sendable {
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         let decoded = try JSONDecoder().decode(ChatCompletionResponse.self, from: data)
-        guard let content = decoded.choices.first?.message?.displayContent, !content.isEmpty else {
+        guard let choice = decoded.choices.first,
+              let content = choice.message?.displayContent,
+              !content.isEmpty else {
             throw LLMClientError.emptyResponse
         }
         return AsyncThrowingStream { continuation in
             continuation.yield(content)
+            if choice.finishReason == "length" {
+                continuation.yield(Self.tokenLimitMessage)
+            }
             continuation.finish()
         }
     }
@@ -217,6 +230,12 @@ private struct ChatCompletionResponse: Decodable {
             }
         }
         var message: Message?
+        var finishReason: String?
+
+        enum CodingKeys: String, CodingKey {
+            case message
+            case finishReason = "finish_reason"
+        }
     }
     var choices: [Choice]
 }
