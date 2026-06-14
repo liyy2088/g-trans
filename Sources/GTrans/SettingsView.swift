@@ -48,7 +48,7 @@ struct SettingsView: View {
                     }
                 }
                 Toggle("开机自动启动", isOn: $appState.configuration.launchAtLogin)
-                    .onChange(of: appState.configuration.launchAtLogin) { _, enabled in
+                    .onChange(of: appState.configuration.launchAtLogin) { enabled in
                         setLaunchAtLogin(enabled)
                     }
                 Text("快捷键：Option + Space")

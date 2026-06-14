@@ -139,13 +139,13 @@ struct TranslationPanelView: View {
                         .id(outputBottomID)
                 }
             }
-            .onChange(of: appState.session.translation) {
+            .onChange(of: appState.session.translation) { _ in
                 scrollOutputToBottom(proxy)
             }
-            .onChange(of: appState.session.followUps.count) {
+            .onChange(of: appState.session.followUps.count) { _ in
                 scrollOutputToBottom(proxy)
             }
-            .onChange(of: appState.session.followUps.last?.answer ?? "") {
+            .onChange(of: appState.session.followUps.last?.answer ?? "") { _ in
                 scrollOutputToBottom(proxy)
             }
         }
