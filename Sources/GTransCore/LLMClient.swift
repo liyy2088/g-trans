@@ -57,25 +57,24 @@ public struct LLMClient: Sendable {
     }
 
     public func makeRequest(
-        configuration: AppConfiguration,
-        apiKey: String,
+        profile: LLMProfile,
         messages: [ChatMessage],
         stream: Bool
     ) throws -> URLRequest {
-        guard let url = URL(string: "chat/completions", relativeTo: normalizedBaseURL(configuration.baseURL))?.absoluteURL else {
+        guard let url = URL(string: "chat/completions", relativeTo: normalizedBaseURL(profile.baseURL))?.absoluteURL else {
             throw LLMClientError.invalidBaseURL
         }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 120
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(profile.apiKey)", forHTTPHeaderField: "Authorization")
         let body = ChatCompletionRequest(
-            model: configuration.model,
+            model: profile.model,
             messages: messages,
             temperature: 0,
             maxTokens: Self.maxOutputTokens,
-            reasoning: reasoningConfig(for: configuration.baseURL),
+            reasoning: reasoningConfig(for: profile.baseURL),
             stream: stream
         )
         request.httpBody = try JSONEncoder().encode(body)
@@ -83,26 +82,25 @@ public struct LLMClient: Sendable {
     }
 
     public func complete(
-        configuration: AppConfiguration,
-        apiKey: String,
+        profile: LLMProfile,
+        streamingEnabled: Bool,
         messages: [ChatMessage]
     ) async throws -> AsyncThrowingStream<String, Error> {
-        if configuration.streamingEnabled {
+        if streamingEnabled {
             do {
-                return try await stream(configuration: configuration, apiKey: apiKey, messages: messages)
+                return try await stream(profile: profile, messages: messages)
             } catch {
-                return try await completeOnce(configuration: configuration, apiKey: apiKey, messages: messages)
+                return try await completeOnce(profile: profile, messages: messages)
             }
         }
-        return try await completeOnce(configuration: configuration, apiKey: apiKey, messages: messages)
+        return try await completeOnce(profile: profile, messages: messages)
     }
 
     public func stream(
-        configuration: AppConfiguration,
-        apiKey: String,
+        profile: LLMProfile,
         messages: [ChatMessage]
     ) async throws -> AsyncThrowingStream<String, Error> {
-        let request = try makeRequest(configuration: configuration, apiKey: apiKey, messages: messages, stream: true)
+        let request = try makeRequest(profile: profile, messages: messages, stream: true)
         let lines = session.lines(for: request)
 
         return AsyncThrowingStream { continuation in
@@ -131,11 +129,10 @@ public struct LLMClient: Sendable {
     }
 
     public func completeOnce(
-        configuration: AppConfiguration,
-        apiKey: String,
+        profile: LLMProfile,
         messages: [ChatMessage]
     ) async throws -> AsyncThrowingStream<String, Error> {
-        let request = try makeRequest(configuration: configuration, apiKey: apiKey, messages: messages, stream: false)
+        let request = try makeRequest(profile: profile, messages: messages, stream: false)
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
         let decoded = try JSONDecoder().decode(ChatCompletionResponse.self, from: data)
@@ -151,6 +148,31 @@ public struct LLMClient: Sendable {
             }
             continuation.finish()
         }
+    }
+
+    public func testConnection(profile: LLMProfile) async throws {
+        guard let url = URL(string: "models", relativeTo: normalizedBaseURL(profile.baseURL))?.absoluteURL else {
+            throw LLMClientError.invalidBaseURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 20
+        request.setValue("Bearer \(profile.apiKey)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+    }
+
+    public func makeRequest(
+        configuration: AppConfiguration,
+        apiKey: String,
+        messages: [ChatMessage],
+        stream: Bool
+    ) throws -> URLRequest {
+        var profile = configuration.selectedProfile ?? LLMProfile()
+        if profile.apiKey.isEmpty {
+            profile.apiKey = apiKey
+        }
+        return try makeRequest(profile: profile, messages: messages, stream: stream)
     }
 
     private func normalizedBaseURL(_ baseURL: URL) -> URL {

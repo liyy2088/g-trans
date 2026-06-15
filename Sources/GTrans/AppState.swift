@@ -10,15 +10,14 @@ private enum AppStateError: Error {
 @MainActor
 final class AppState: ObservableObject {
     @Published var configuration: AppConfiguration
-    @Published var apiKey: String = ""
     @Published var setupError: String?
-    @Published var copiedFeedback = false
+    @Published var copiedTranslationFeedback = false
+    @Published var copiedSourceFeedback = false
     @Published var panelMessage: String?
     @Published private(set) var accessibilityEnabled = false
 
     let session = TranslationSession()
     private let configurationStore: ConfigurationStoring
-    private let apiKeyStore: APIKeyStoring
     private let selectionService: SelectionService
     private let panelCoordinator: PanelCoordinator
     private let settingsPanelCoordinator: SettingsPanelCoordinator
@@ -30,26 +29,25 @@ final class AppState: ObservableObject {
 
     init(
         configurationStore: ConfigurationStoring = UserDefaultsConfigurationStore(),
-        apiKeyStore: APIKeyStoring = UserDefaultsAPIKeyStore(),
         selectionService: SelectionService = SelectionService(),
         panelCoordinator: PanelCoordinator? = nil,
         settingsPanelCoordinator: SettingsPanelCoordinator? = nil,
         client: LLMClient = LLMClient()
     ) {
         self.configurationStore = configurationStore
-        self.apiKeyStore = apiKeyStore
         self.selectionService = selectionService
         self.panelCoordinator = panelCoordinator ?? PanelCoordinator()
         self.settingsPanelCoordinator = settingsPanelCoordinator ?? SettingsPanelCoordinator()
         self.client = client
         self.configuration = configurationStore.load()
-        self.apiKey = (try? apiKeyStore.loadAPIKey()) ?? ""
+        self.configuration.ensureSelectedProfile()
         self.accessibilityEnabled = selectionService.accessibilityTrusted(prompt: false)
         AppDiagnostics.info(
             "app_state_init",
             [
                 "base_url": configuration.baseURL.absoluteString,
                 "model": configuration.model,
+                "profile_name": selectedProfile?.displayName ?? "",
                 "api_configured": isAPIConfigured,
                 "accessibility": accessibilityEnabled
             ]
@@ -62,7 +60,11 @@ final class AppState: ObservableObject {
     }
 
     var isAPIConfigured: Bool {
-        configuration.isAPIConfigured && !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        configuration.isAPIConfigured
+    }
+
+    var selectedProfile: LLMProfile? {
+        configuration.selectedProfile
     }
 
     func start() {
@@ -96,23 +98,69 @@ final class AppState: ObservableObject {
     }
 
     func saveSettings() {
+        configuration.ensureSelectedProfile()
         configurationStore.save(configuration)
-        do {
-            try apiKeyStore.saveAPIKey(apiKey)
-            setupError = nil
-            AppDiagnostics.info(
-                "settings_saved",
-                [
-                    "base_url": configuration.baseURL.absoluteString,
-                    "model": configuration.model,
-                    "api_key_length": apiKey.count,
-                    "streaming": configuration.streamingEnabled,
-                    "target": configuration.targetLanguage.rawValue
-                ]
-            )
-        } catch {
-            setupError = "API Key 保存失败：\(error.localizedDescription)"
-            AppDiagnostics.error("settings_save_failed", ["error": error.localizedDescription])
+        setupError = nil
+        AppDiagnostics.info(
+            "settings_saved",
+            [
+                "profile_name": selectedProfile?.displayName ?? "",
+                "base_url": configuration.baseURL.absoluteString,
+                "model": configuration.model,
+                "api_key_length": configuration.apiKey.count,
+                "profile_count": configuration.profiles.count,
+                "streaming": configuration.streamingEnabled,
+                "target": configuration.targetLanguage.rawValue
+            ]
+        )
+    }
+
+    func selectProfile(id: String) {
+        guard configuration.profiles.contains(where: { $0.id == id }) else {
+            return
+        }
+        configuration.selectedProfileID = id
+        saveSettings()
+    }
+
+    func addProfile() {
+        let profile = LLMProfile(name: "新配置")
+        configuration.profiles.append(profile)
+        configuration.selectedProfileID = profile.id
+        saveSettings()
+    }
+
+    func deleteSelectedProfile() {
+        guard configuration.profiles.count > 1,
+              let selectedProfileID = configuration.selectedProfile?.id else {
+            return
+        }
+        configuration.profiles.removeAll { $0.id == selectedProfileID }
+        configuration.selectedProfileID = configuration.profiles.first?.id
+        saveSettings()
+    }
+
+    func testSelectedProfileConnection() {
+        guard let profile = selectedProfile else {
+            setupError = "没有可测试的 LLM 配置。"
+            return
+        }
+        guard profile.isConfigured else {
+            setupError = "请先填写 API Key 和 model。"
+            return
+        }
+        setupError = "正在测试连接..."
+        Task {
+            do {
+                try await client.testConnection(profile: profile)
+                await MainActor.run {
+                    setupError = "连接测试通过。"
+                }
+            } catch {
+                await MainActor.run {
+                    setupError = LLMErrorPresenter.message(for: error)
+                }
+            }
         }
     }
 
@@ -216,19 +264,27 @@ final class AppState: ObservableObject {
             return
         }
         panelMessage = nil
+        copiedTranslationFeedback = false
+        copiedSourceFeedback = false
         let target = LanguageDirection.targetLanguage(for: trimmed, defaultTarget: configuration.targetLanguage)
         AppDiagnostics.info(
             "translation_start",
             [
                 "source_length": trimmed.count,
                 "target": target.rawValue,
+                "profile_name": selectedProfile?.displayName ?? "",
+                "base_url": configuration.baseURL.absoluteString,
                 "model": configuration.model,
                 "streaming": configuration.streamingEnabled
             ]
         )
         session.start(sourceText: trimmed, targetLanguage: target)
         panelCoordinator.show(appState: self, mode: .result)
-        session.runTranslation(client: client, configuration: configuration, apiKey: apiKey)
+        guard let profile = selectedProfile else {
+            openSettings()
+            return
+        }
+        session.runTranslation(client: client, profile: profile, streamingEnabled: configuration.streamingEnabled)
     }
 
     private func launchTranslationText() -> String? {
@@ -242,19 +298,30 @@ final class AppState: ObservableObject {
 
     func regenerate() {
         AppDiagnostics.info("translation_regenerate", ["source_length": session.sourceText.count])
-        session.runTranslation(client: client, configuration: configuration, apiKey: apiKey)
+        copiedTranslationFeedback = false
+        copiedSourceFeedback = false
+        guard let profile = selectedProfile else {
+            openSettings()
+            return
+        }
+        session.runTranslation(client: client, profile: profile, streamingEnabled: configuration.streamingEnabled)
     }
 
     func startNewTranslationDraft() {
         AppDiagnostics.info("new_translation_draft")
         panelMessage = nil
-        copiedFeedback = false
+        copiedTranslationFeedback = false
+        copiedSourceFeedback = false
         session.close()
     }
 
     func ask(_ question: String, displayQuestion: String? = nil) {
         AppDiagnostics.info("follow_up_start", ["question_length": question.count])
-        session.ask(question: question, displayQuestion: displayQuestion, client: client, configuration: configuration, apiKey: apiKey)
+        guard let profile = selectedProfile else {
+            openSettings()
+            return
+        }
+        session.ask(question: question, displayQuestion: displayQuestion, client: client, profile: profile, streamingEnabled: configuration.streamingEnabled)
     }
 
     func closePanel() {
@@ -274,10 +341,21 @@ final class AppState: ObservableObject {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(session.translation, forType: .string)
         AppDiagnostics.info("translation_copied", ["translation_length": session.translation.count])
-        copiedFeedback = true
+        copiedTranslationFeedback = true
         Task {
             try? await Task.sleep(nanoseconds: 1_200_000_000)
-            copiedFeedback = false
+            copiedTranslationFeedback = false
+        }
+    }
+
+    func copySourceText() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(session.sourceText, forType: .string)
+        AppDiagnostics.info("source_copied", ["source_length": session.sourceText.count])
+        copiedSourceFeedback = true
+        Task {
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            copiedSourceFeedback = false
         }
     }
 }

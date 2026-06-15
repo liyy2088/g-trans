@@ -32,10 +32,10 @@ final class PromptBuilderTests: XCTestCase {
     func testSessionStoresDisplayQuestionButSendsSourceFocusedQuestion() async throws {
         let urlSession = StubURLSession()
         let client = LLMClient(session: urlSession)
-        let configuration = AppConfiguration(
+        let profile = LLMProfile(
             baseURL: URL(string: "http://localhost:11434/v1/")!,
-            model: "gemma4:12b-mlx",
-            streamingEnabled: false
+            apiKey: "ollama",
+            model: "gemma4:12b-mlx"
         )
         let session = TranslationSession(sourceText: "threshold", targetLanguage: .simplifiedChinese)
         session.translation = "阈值"
@@ -44,13 +44,17 @@ final class PromptBuilderTests: XCTestCase {
             question: PromptBuilder.sourceFocusedFollowUpQuestion(for: "解释用法"),
             displayQuestion: "解释用法",
             client: client,
-            configuration: configuration,
-            apiKey: "ollama"
+            profile: profile,
+            streamingEnabled: false
         )
 
-        try await waitForFollowUp(in: session)
+        XCTAssertEqual(session.activeFollowUpQuestion, "解释用法")
+        XCTAssertEqual(session.followUps, [FollowUpTurn(question: "解释用法", answer: "")])
+
+        try await waitForFollowUpAnswer(in: session)
 
         XCTAssertEqual(session.followUps, [FollowUpTurn(question: "解释用法", answer: "回答")])
+        XCTAssertNil(session.activeFollowUpQuestion)
         let request = try XCTUnwrap(urlSession.lastRequest)
         let body = try XCTUnwrap(request.httpBody)
         let decoded = try JSONDecoder().decode(ChatCompletionRequest.self, from: body)
@@ -58,9 +62,9 @@ final class PromptBuilderTests: XCTestCase {
     }
 
     @MainActor
-    private func waitForFollowUp(in session: TranslationSession) async throws {
+    private func waitForFollowUpAnswer(in session: TranslationSession) async throws {
         for _ in 0..<20 {
-            if !session.followUps.isEmpty {
+            if session.followUps.last?.answer == "回答" {
                 return
             }
             try await Task.sleep(nanoseconds: 50_000_000)

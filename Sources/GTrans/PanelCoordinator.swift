@@ -18,7 +18,7 @@ final class PanelCoordinator {
         NSApp.setActivationPolicy(.regular)
         if panel == nil {
             let panel = EscapeClosingPanel(
-                contentRect: NSRect(x: 0, y: 0, width: 620, height: 520),
+                contentRect: NSRect(x: 0, y: 0, width: 720, height: 560),
                 styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false

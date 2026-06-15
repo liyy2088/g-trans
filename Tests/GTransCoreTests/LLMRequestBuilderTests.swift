@@ -5,13 +5,14 @@ import XCTest
 final class LLMRequestBuilderTests: XCTestCase {
     func buildsOpenAICompatibleRequest() throws {
         let client = LLMClient()
-        let config = AppConfiguration(
+        let profile = LLMProfile(
+            name: "本地 Ollama",
             baseURL: URL(string: "http://localhost:11434/v1/")!,
+            apiKey: "ollama",
             model: "gemma4:12b-mlx"
         )
         let request = try client.makeRequest(
-            configuration: config,
-            apiKey: "ollama",
+            profile: profile,
             messages: [ChatMessage(role: "user", content: "Hi")],
             stream: true
         )
@@ -32,13 +33,14 @@ final class LLMRequestBuilderTests: XCTestCase {
 
     func omitsReasoningForNonLocalEndpoint() throws {
         let client = LLMClient()
-        let config = AppConfiguration(
+        let profile = LLMProfile(
+            name: "OpenAI",
             baseURL: URL(string: "https://api.example.com/v1/")!,
+            apiKey: "token",
             model: "example-model"
         )
         let request = try client.makeRequest(
-            configuration: config,
-            apiKey: "token",
+            profile: profile,
             messages: [ChatMessage(role: "user", content: "Hi")],
             stream: false
         )
@@ -46,5 +48,33 @@ final class LLMRequestBuilderTests: XCTestCase {
         let body = try XCTUnwrap(request.httpBody)
         let decoded = try JSONDecoder().decode(ChatCompletionRequest.self, from: body)
         XCTAssertNil(decoded.reasoning)
+    }
+
+    func buildsRequestsFromDifferentProfiles() throws {
+        let client = LLMClient()
+        let localProfile = LLMProfile(
+            name: "本地",
+            baseURL: URL(string: "http://localhost:11434/v1/")!,
+            apiKey: "ollama",
+            model: "local-model"
+        )
+        let remoteProfile = LLMProfile(
+            name: "远端",
+            baseURL: URL(string: "https://api.example.com/v1/")!,
+            apiKey: "remote-token",
+            model: "remote-model"
+        )
+
+        let localRequest = try client.makeRequest(profile: localProfile, messages: [], stream: false)
+        let remoteRequest = try client.makeRequest(profile: remoteProfile, messages: [], stream: false)
+        let localBody = try JSONDecoder().decode(ChatCompletionRequest.self, from: XCTUnwrap(localRequest.httpBody))
+        let remoteBody = try JSONDecoder().decode(ChatCompletionRequest.self, from: XCTUnwrap(remoteRequest.httpBody))
+
+        XCTAssertEqual(localRequest.url?.absoluteString, "http://localhost:11434/v1/chat/completions")
+        XCTAssertEqual(localRequest.value(forHTTPHeaderField: "Authorization"), "Bearer ollama")
+        XCTAssertEqual(localBody.model, "local-model")
+        XCTAssertEqual(remoteRequest.url?.absoluteString, "https://api.example.com/v1/chat/completions")
+        XCTAssertEqual(remoteRequest.value(forHTTPHeaderField: "Authorization"), "Bearer remote-token")
+        XCTAssertEqual(remoteBody.model, "remote-model")
     }
 }

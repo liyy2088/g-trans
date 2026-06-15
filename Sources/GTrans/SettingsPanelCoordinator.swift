@@ -9,7 +9,7 @@ final class SettingsPanelCoordinator: NSObject {
         NSApp.setActivationPolicy(.regular)
         if panel == nil {
             let panel = NSPanel(
-                contentRect: NSRect(x: 0, y: 0, width: 580, height: 500),
+                contentRect: NSRect(x: 0, y: 0, width: 860, height: 620),
                 styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false

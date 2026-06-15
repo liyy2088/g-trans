@@ -44,10 +44,13 @@ struct LogicCheck {
         expect(LanguageDirection.targetLanguage(for: "Hello world", defaultTarget: .english) == .simplifiedChinese, "English default should switch to Simplified Chinese for English source")
 
         let client = LLMClient()
-        let config = AppConfiguration(baseURL: URL(string: "http://localhost:11434/v1/")!, model: "qwen3.5:2b-mlx")
-        let request = try client.makeRequest(
-            configuration: config,
+        let profile = LLMProfile(
+            baseURL: URL(string: "http://localhost:11434/v1/")!,
             apiKey: "ollama",
+            model: "qwen3.5:2b-mlx"
+        )
+        let request = try client.makeRequest(
+            profile: profile,
             messages: [ChatMessage(role: "user", content: "Hi")],
             stream: true
         )

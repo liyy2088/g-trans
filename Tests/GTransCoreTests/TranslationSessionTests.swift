@@ -13,6 +13,7 @@ final class TranslationSessionTests: XCTestCase {
         XCTAssertTrue(session.sourceText.isEmpty)
         XCTAssertTrue(session.translation.isEmpty)
         XCTAssertTrue(session.followUps.isEmpty)
+        XCTAssertNil(session.activeFollowUpQuestion)
         XCTAssertTrue(session.isClosed)
     }
 
@@ -26,6 +27,7 @@ final class TranslationSessionTests: XCTestCase {
         XCTAssertEqual(session.sourceText, "Good morning")
         XCTAssertTrue(session.translation.isEmpty)
         XCTAssertTrue(session.followUps.isEmpty)
+        XCTAssertNil(session.activeFollowUpQuestion)
         XCTAssertEqual(session.state, .idle)
     }
 }
