@@ -61,11 +61,13 @@ public final class TranslationSession: ObservableObject {
         }
     }
 
-    public func ask(question: String, client: LLMClient, configuration: AppConfiguration, apiKey: String) {
+    public func ask(question: String, displayQuestion: String? = nil, client: LLMClient, configuration: AppConfiguration, apiKey: String) {
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             return
         }
+        let visibleQuestion = displayQuestion?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let storedQuestion = visibleQuestion.flatMap { $0.isEmpty ? nil : $0 } ?? trimmed
         cancel()
         state = .asking
         var answer = ""
@@ -80,10 +82,10 @@ public final class TranslationSession: ObservableObject {
         task = Task { [weak self] in
             await self?.consume(client: client, configuration: configuration, apiKey: apiKey, messages: messages) { session, token in
                 answer += token
-                if session.followUps.last?.question == trimmed {
+                if session.followUps.last?.question == storedQuestion {
                     session.followUps[session.followUps.count - 1].answer = answer
                 } else {
-                    session.followUps.append(FollowUpTurn(question: trimmed, answer: answer))
+                    session.followUps.append(FollowUpTurn(question: storedQuestion, answer: answer))
                 }
             }
         }

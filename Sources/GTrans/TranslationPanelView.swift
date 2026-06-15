@@ -234,7 +234,7 @@ struct TranslationPanelView: View {
         HStack {
             ForEach(["解释用法", "给例句", "更自然表达", "语法分析"], id: \.self) { title in
                 Button(title) {
-                    appState.ask(title)
+                    appState.ask(PromptBuilder.sourceFocusedFollowUpQuestion(for: title), displayQuestion: title)
                 }
                 .disabled(appState.session.translation.isEmpty)
             }

@@ -73,6 +73,24 @@ struct LogicCheck {
         expect(done.isEmpty, "done produces no token")
         expect(parser.isDone, "done state")
 
+        let followUpMessages = PromptBuilder.followUpMessages(
+            sourceText: "threshold",
+            translation: "阈值",
+            targetLanguage: .simplifiedChinese,
+            history: [],
+            question: "再给两个例句"
+        )
+        expect(followUpMessages[0].content.contains("所有追问默认针对原文"), "follow-up defaults to source text")
+        expect(followUpMessages[0].content.contains("译文只作为参考译文"), "translation is reference only")
+        expect(followUpMessages[1].content.contains("原文：\nthreshold"), "source text included")
+        expect(followUpMessages[1].content.contains("参考译文（简体中文）：\n阈值"), "reference translation included")
+        expect(followUpMessages.last == ChatMessage(role: "user", content: "再给两个例句"), "free follow-up question preserved")
+        expect(PromptBuilder.sourceFocusedFollowUpQuestion(for: "解释用法") == "请针对原文解释用法。", "explain usage targets source")
+        expect(PromptBuilder.sourceFocusedFollowUpQuestion(for: "给例句") == "请针对原文给例句。", "examples target source")
+        expect(PromptBuilder.sourceFocusedFollowUpQuestion(for: "更自然表达") == "请针对原文给出更自然的表达。", "natural expression targets source")
+        expect(PromptBuilder.sourceFocusedFollowUpQuestion(for: "语法分析") == "请针对原文做语法分析。", "grammar targets source")
+        expect(PromptBuilder.sourceFocusedFollowUpQuestion(for: "这个译文自然吗") == "这个译文自然吗", "custom translation question preserved")
+
         let session = TranslationSession(sourceText: "Hello", targetLanguage: .simplifiedChinese)
         await MainActor.run {
             session.translation = "你好"

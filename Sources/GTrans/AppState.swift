@@ -252,9 +252,9 @@ final class AppState: ObservableObject {
         session.close()
     }
 
-    func ask(_ question: String) {
+    func ask(_ question: String, displayQuestion: String? = nil) {
         AppDiagnostics.info("follow_up_start", ["question_length": question.count])
-        session.ask(question: question, client: client, configuration: configuration, apiKey: apiKey)
+        session.ask(question: question, displayQuestion: displayQuestion, client: client, configuration: configuration, apiKey: apiKey)
     }
 
     func closePanel() {
