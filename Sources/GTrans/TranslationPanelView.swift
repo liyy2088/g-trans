@@ -77,6 +77,7 @@ struct TranslationPanelView: View {
                     snapshot: snapshot,
                     sourceText: appState.session.sourceText,
                     translation: appState.session.translation,
+                    keywordExplanation: appState.session.keywordExplanation,
                     followUps: appState.session.followUps,
                     stateTitle: appState.session.state.debugDisplayName
                 )
@@ -214,6 +215,9 @@ struct TranslationPanelView: View {
                     Text(appState.session.translation.isEmpty ? "正在翻译..." : appState.session.translation)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
+                    if shouldShowKeywordExplanation {
+                        keywordExplanationSection
+                    }
                     ForEach(Array(appState.session.followUps.enumerated()), id: \.offset) { _, turn in
                         VStack(alignment: .leading, spacing: 6) {
                             Text(turn.question)
@@ -239,6 +243,9 @@ struct TranslationPanelView: View {
             .onChange(of: appState.session.translation) { _ in
                 scrollOutputToBottom(proxy)
             }
+            .onChange(of: appState.session.keywordExplanation) { _ in
+                scrollOutputToBottom(proxy)
+            }
             .onChange(of: appState.session.followUps.count) { _ in
                 scrollOutputToBottom(proxy)
             }
@@ -247,6 +254,49 @@ struct TranslationPanelView: View {
             }
         }
         .frame(minHeight: 170)
+    }
+
+    private var shouldShowKeywordExplanation: Bool {
+        visibleKeywordExplanation != nil || isExplainingKeywords
+    }
+
+    private var visibleKeywordExplanation: String? {
+        let text = appState.session.keywordExplanation.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            return nil
+        }
+        let emptyKeywordMessages = [
+            "无需要特别解释的关键词汇",
+            "无需特别解释的关键词汇"
+        ]
+        let normalizedText = text.trimmingCharacters(in: CharacterSet(charactersIn: "。.!！"))
+        guard !emptyKeywordMessages.contains(normalizedText) else {
+            return nil
+        }
+        return text
+    }
+
+    private var keywordExplanationSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 7) {
+                Image(systemName: "character.book.closed")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                Text("关键词汇")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            Text(visibleKeywordExplanation ?? "正在解释关键词...")
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+        .padding(10)
+        .background(Color.secondary.opacity(0.055))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.secondary.opacity(0.08), lineWidth: 1)
+        )
     }
 
     private func scrollOutputToBottom(_ proxy: ScrollViewProxy) {
@@ -299,7 +349,7 @@ struct TranslationPanelView: View {
                 systemImage: "arrow.clockwise",
                 loadingTitle: "正在重新生成",
                 isLoading: isTranslating,
-                isDisabled: appState.session.sourceText.isEmpty || isAskingFollowUp
+                isDisabled: appState.session.sourceText.isEmpty || isExplainingKeywords || isAskingFollowUp
             ) {
                 appState.regenerate()
             }
@@ -331,7 +381,7 @@ struct TranslationPanelView: View {
             floatingActionButton(
                 title: "查看上下文",
                 systemImage: "doc.text",
-                isDisabled: appState.session.lastLLMContextSnapshot == nil
+                isDisabled: shouldDisableContextAction
             ) {
                 showingContextDebug = true
             }
@@ -377,12 +427,23 @@ struct TranslationPanelView: View {
         return false
     }
 
+    private var isExplainingKeywords: Bool {
+        if case .explainingKeywords = appState.session.state {
+            return true
+        }
+        return false
+    }
+
     private func isActiveFollowUp(_ title: String) -> Bool {
         appState.session.activeFollowUpQuestion == title
     }
 
     private func shouldDisableFollowUpAction(_ title: String) -> Bool {
-        appState.session.translation.isEmpty || isTranslating || (isAskingFollowUp && !isActiveFollowUp(title))
+        appState.session.translation.isEmpty || isTranslating || isExplainingKeywords || (isAskingFollowUp && !isActiveFollowUp(title))
+    }
+
+    private var shouldDisableContextAction: Bool {
+        appState.session.lastLLMContextSnapshot == nil || isTranslating || isExplainingKeywords || isAskingFollowUp
     }
 
     private func floatingActionButton(
@@ -533,6 +594,7 @@ struct TranslationPanelView: View {
         appState.isAPIConfigured &&
             !isAskingFollowUp &&
             !isTranslating &&
+            !isExplainingKeywords &&
             !followUpText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -605,6 +667,7 @@ private struct LLMContextDebugView: View {
     let snapshot: LLMContextSnapshot
     let sourceText: String
     let translation: String
+    let keywordExplanation: String
     let followUps: [FollowUpTurn]
     let stateTitle: String
     @Environment(\.dismiss) private var dismiss
@@ -721,6 +784,7 @@ private struct LLMContextDebugView: View {
             summaryBlock(title: "状态", text: stateTitle)
             summaryBlock(title: "原文", text: sourceText)
             summaryBlock(title: "译文", text: translation.isEmpty ? "暂无译文" : translation)
+            summaryBlock(title: "关键词汇", text: keywordExplanation.isEmpty ? "暂无关键词解释" : keywordExplanation)
             if followUps.isEmpty {
                 summaryBlock(title: "追问", text: "暂无追问")
             } else {
@@ -838,6 +902,8 @@ private extension TranslationState {
             return "空闲"
         case .translating:
             return "正在翻译"
+        case .explainingKeywords:
+            return "正在解释关键词"
         case .asking:
             return "正在追问"
         case .failed(let message):

@@ -20,6 +20,7 @@ public struct FollowUpTurn: Codable, Equatable, Sendable {
 public enum TranslationState: Equatable, Sendable {
     case idle
     case translating
+    case explainingKeywords
     case asking
     case failed(String)
     case cancelled
@@ -30,6 +31,7 @@ public final class TranslationSession: ObservableObject {
     @Published public private(set) var sourceText: String
     @Published public private(set) var targetLanguage: TargetLanguage
     @Published public var translation: String
+    @Published public var keywordExplanation: String
     @Published public var followUps: [FollowUpTurn]
     @Published public private(set) var activeFollowUpQuestion: String?
     @Published public private(set) var lastLLMContextSnapshot: LLMContextSnapshot?
@@ -41,6 +43,7 @@ public final class TranslationSession: ObservableObject {
         self.sourceText = sourceText
         self.targetLanguage = targetLanguage
         self.translation = ""
+        self.keywordExplanation = ""
         self.followUps = []
         self.activeFollowUpQuestion = nil
         self.lastLLMContextSnapshot = nil
@@ -53,6 +56,7 @@ public final class TranslationSession: ObservableObject {
         self.sourceText = sourceText
         self.targetLanguage = targetLanguage
         translation = ""
+        keywordExplanation = ""
         followUps = []
         activeFollowUpQuestion = nil
         lastLLMContextSnapshot = nil
@@ -63,6 +67,7 @@ public final class TranslationSession: ObservableObject {
     public func runTranslation(client: LLMClient, profile: LLMProfile, streamingEnabled: Bool) {
         cancel()
         translation = ""
+        keywordExplanation = ""
         activeFollowUpQuestion = nil
         state = .translating
         AppDiagnostics.info(
@@ -82,9 +87,16 @@ public final class TranslationSession: ObservableObject {
             messages: messages
         )
         task = Task { [weak self] in
-            await self?.consume(client: client, profile: profile, streamingEnabled: streamingEnabled, messages: messages) { session, token in
+            guard let self else {
+                return
+            }
+            let didTranslate = await self.consume(client: client, profile: profile, streamingEnabled: streamingEnabled, messages: messages) { session, token in
                 session.translation += token
             }
+            guard didTranslate, !Task.isCancelled, !self.isClosed else {
+                return
+            }
+            await self.runKeywordExplanation(client: client, profile: profile, streamingEnabled: streamingEnabled)
         }
     }
 
@@ -124,7 +136,7 @@ public final class TranslationSession: ObservableObject {
             messages: messages
         )
         task = Task { [weak self] in
-            await self?.consume(client: client, profile: profile, streamingEnabled: streamingEnabled, messages: messages) { session, token in
+            _ = await self?.consume(client: client, profile: profile, streamingEnabled: streamingEnabled, messages: messages) { session, token in
                 answer += token
                 if session.followUps.last?.question == storedQuestion {
                     session.followUps[session.followUps.count - 1].answer = answer
@@ -138,7 +150,7 @@ public final class TranslationSession: ObservableObject {
     public func cancel() {
         task?.cancel()
         task = nil
-        if state == .translating || state == .asking {
+        if state == .translating || state == .explainingKeywords || state == .asking {
             state = .cancelled
         }
         activeFollowUpQuestion = nil
@@ -148,6 +160,7 @@ public final class TranslationSession: ObservableObject {
         cancel()
         sourceText = ""
         translation = ""
+        keywordExplanation = ""
         followUps = []
         activeFollowUpQuestion = nil
         lastLLMContextSnapshot = nil
@@ -172,10 +185,44 @@ public final class TranslationSession: ObservableObject {
             sessionSummary: LLMContextSessionSummary(
                 sourceText: sourceText,
                 translation: translation,
+                keywordExplanation: keywordExplanation,
                 followUps: followUps,
                 state: state.contextDescription
             )
         )
+    }
+
+    private func runKeywordExplanation(client: LLMClient, profile: LLMProfile, streamingEnabled: Bool) async {
+        guard !translation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            state = .idle
+            return
+        }
+        keywordExplanation = ""
+        state = .explainingKeywords
+        AppDiagnostics.info(
+            "keyword_explanation_request_start",
+            [
+                "source_length": sourceText.count,
+                "translation_length": translation.count,
+                "profile_name": profile.displayName,
+                "base_url": profile.baseURL.absoluteString,
+                "model": profile.model
+            ]
+        )
+        let messages = PromptBuilder.keywordExplanationMessages(
+            sourceText: sourceText,
+            translation: translation,
+            targetLanguage: targetLanguage
+        )
+        lastLLMContextSnapshot = makeContextSnapshot(
+            requestKind: .keywordExplanation,
+            profile: profile,
+            streamingEnabled: streamingEnabled,
+            messages: messages
+        )
+        _ = await consume(client: client, profile: profile, streamingEnabled: streamingEnabled, messages: messages) { session, token in
+            session.keywordExplanation += token
+        }
     }
 
     private func consume(
@@ -184,7 +231,7 @@ public final class TranslationSession: ObservableObject {
         streamingEnabled: Bool,
         messages: [ChatMessage],
         append: @escaping @MainActor (TranslationSession, String) -> Void
-    ) async {
+    ) async -> Bool {
         do {
             let stream = try await client.complete(
                 profile: profile,
@@ -194,7 +241,7 @@ public final class TranslationSession: ObservableObject {
             var assistantResponse = ""
             for try await token in stream {
                 guard !Task.isCancelled, !isClosed else {
-                    return
+                    return false
                 }
                 append(self, token)
                 assistantResponse += token
@@ -204,11 +251,13 @@ public final class TranslationSession: ObservableObject {
                 state = .idle
                 activeFollowUpQuestion = nil
                 AppDiagnostics.info("llm_request_finished")
+                return true
             }
         } catch is CancellationError {
             state = .cancelled
             activeFollowUpQuestion = nil
             AppDiagnostics.info("llm_request_cancelled")
+            return false
         } catch {
             if !isClosed {
                 state = .failed(LLMErrorPresenter.message(for: error))
@@ -221,7 +270,9 @@ public final class TranslationSession: ObservableObject {
                     ]
                 )
             }
+            return false
         }
+        return false
     }
 
     private func updateContextAssistantResponse(_ response: String) {
@@ -246,6 +297,8 @@ extension TranslationState {
             return "idle"
         case .translating:
             return "translating"
+        case .explainingKeywords:
+            return "explainingKeywords"
         case .asking:
             return "asking"
         case .failed(let message):

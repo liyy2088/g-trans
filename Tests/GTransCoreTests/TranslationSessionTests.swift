@@ -6,6 +6,7 @@ final class TranslationSessionTests: XCTestCase {
     func closeClearsCurrentContext() {
         let session = TranslationSession(sourceText: "Hello", targetLanguage: .simplifiedChinese)
         session.translation = "你好"
+        session.keywordExplanation = "Hello — 你好 — 问候语 — 你好"
         session.followUps = [FollowUpTurn(question: "解释用法", answer: "问候语")]
         session.runTranslation(
             client: LLMClient(session: ContextSnapshotStubURLSession()),
@@ -18,6 +19,7 @@ final class TranslationSessionTests: XCTestCase {
 
         XCTAssertTrue(session.sourceText.isEmpty)
         XCTAssertTrue(session.translation.isEmpty)
+        XCTAssertTrue(session.keywordExplanation.isEmpty)
         XCTAssertTrue(session.followUps.isEmpty)
         XCTAssertNil(session.activeFollowUpQuestion)
         XCTAssertNil(session.lastLLMContextSnapshot)
@@ -27,6 +29,7 @@ final class TranslationSessionTests: XCTestCase {
     func startResetsFollowUpsAndTranslation() {
         let session = TranslationSession(sourceText: "Hello", targetLanguage: .simplifiedChinese)
         session.translation = "你好"
+        session.keywordExplanation = "Hello — 你好 — 问候语 — 你好"
         session.followUps = [FollowUpTurn(question: "解释用法", answer: "问候语")]
         session.runTranslation(
             client: LLMClient(session: ContextSnapshotStubURLSession()),
@@ -39,6 +42,7 @@ final class TranslationSessionTests: XCTestCase {
 
         XCTAssertEqual(session.sourceText, "Good morning")
         XCTAssertTrue(session.translation.isEmpty)
+        XCTAssertTrue(session.keywordExplanation.isEmpty)
         XCTAssertTrue(session.followUps.isEmpty)
         XCTAssertNil(session.activeFollowUpQuestion)
         XCTAssertNil(session.lastLLMContextSnapshot)
@@ -67,7 +71,30 @@ final class TranslationSessionTests: XCTestCase {
         XCTAssertEqual(snapshot.targetLanguage, .simplifiedChinese)
         XCTAssertEqual(snapshot.messages, expectedMessages)
         XCTAssertEqual(snapshot.sessionSummary.sourceText, "Hello")
+        XCTAssertTrue(snapshot.sessionSummary.keywordExplanation.isEmpty)
         XCTAssertFalse(snapshot.jsonString().contains("secret-token"))
+    }
+
+    func runTranslationRequestsKeywordExplanationAfterTranslation() async throws {
+        let session = TranslationSession(sourceText: "Chronological", targetLanguage: .simplifiedChinese)
+
+        session.runTranslation(
+            client: LLMClient(session: KeywordExplanationStubURLSession()),
+            profile: testProfile,
+            streamingEnabled: false
+        )
+
+        try await waitForKeywordExplanation(in: session)
+
+        XCTAssertEqual(session.translation, "按时间顺序的")
+        XCTAssertEqual(session.keywordExplanation, "chronological — 按时间顺序排列的 — 常用于历史记录、报告、事件列表 — 按时间顺序的")
+        XCTAssertEqual(session.state, .idle)
+        XCTAssertEqual(session.lastLLMContextSnapshot?.requestKind, .keywordExplanation)
+        XCTAssertEqual(session.lastLLMContextSnapshot?.messages, PromptBuilder.keywordExplanationMessages(
+            sourceText: "Chronological",
+            translation: "按时间顺序的",
+            targetLanguage: .simplifiedChinese
+        ))
     }
 
     func askStoresFollowUpLLMContextSnapshot() throws {
@@ -155,6 +182,16 @@ final class TranslationSessionTests: XCTestCase {
         XCTFail("Timed out waiting for context assistant response")
     }
 
+    private func waitForKeywordExplanation(in session: TranslationSession) async throws {
+        for _ in 0..<20 {
+            if !session.keywordExplanation.isEmpty {
+                return
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTFail("Timed out waiting for keyword explanation")
+    }
+
     private var testProfile: LLMProfile {
         LLMProfile(
             name: "本地 Ollama",
@@ -181,6 +218,34 @@ private final class ContextSnapshotStubURLSession: URLSessionProtocol, @unchecke
         AsyncThrowingStream { continuation in
             continuation.yield(#"data: {"choices":[{"delta":{"content":"回答"}}]}"#)
             continuation.yield("data: [DONE]")
+            continuation.finish()
+        }
+    }
+}
+
+private final class KeywordExplanationStubURLSession: URLSessionProtocol, @unchecked Sendable {
+    private var requestCount = 0
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        requestCount += 1
+        let content: String
+        if requestCount == 1 {
+            content = "按时间顺序的"
+        } else {
+            content = "chronological — 按时间顺序排列的 — 常用于历史记录、报告、事件列表 — 按时间顺序的"
+        }
+        let data = Data(#"{"choices":[{"message":{"content":"\#(content)"}}]}"#.utf8)
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+        return (data, response)
+    }
+
+    func lines(for request: URLRequest) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
             continuation.finish()
         }
     }

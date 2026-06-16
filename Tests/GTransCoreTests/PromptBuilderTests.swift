@@ -43,6 +43,24 @@ final class PromptBuilderTests: XCTestCase {
         )
     }
 
+    func testKeywordExplanationMessagesTargetSourceText() {
+        let messages = PromptBuilder.keywordExplanationMessages(
+            sourceText: "The product team needs a clear threshold before rolling out the experiment.",
+            translation: "产品团队需要一个明确的阈值，才能推出这个实验。",
+            targetLanguage: .simplifiedChinese
+        )
+
+        XCTAssertTrue(messages[0].content.contains("只针对原文解释关键词汇"))
+        XCTAssertTrue(messages[0].content.contains("参考译文只作为理解辅助"))
+        XCTAssertTrue(messages[0].content.contains("使用简体中文"))
+        XCTAssertTrue(messages[1].content.contains("尽量找出所有值得解释的关键词或短语"))
+        XCTAssertTrue(messages[1].content.contains("由你根据原文复杂度决定解释数量"))
+        XCTAssertTrue(messages[1].content.contains("原词/短语 — 含义 — 语境或用法 — 常见译法"))
+        XCTAssertTrue(messages[1].content.contains("无需要特别解释的关键词汇"))
+        XCTAssertTrue(messages[1].content.contains("原文：\nThe product team needs a clear threshold before rolling out the experiment."))
+        XCTAssertTrue(messages[1].content.contains("参考译文（简体中文）：\n产品团队需要一个明确的阈值，才能推出这个实验。"))
+    }
+
     func testFollowUpMessagesReplayModelQuestionFromHistory() {
         let messages = PromptBuilder.followUpMessages(
             sourceText: "threshold",

@@ -23,6 +23,29 @@ public enum PromptBuilder {
         ]
     }
 
+    public static func keywordExplanationMessages(sourceText: String, translation: String, targetLanguage: TargetLanguage) -> [ChatMessage] {
+        [
+            ChatMessage(
+                role: "system",
+                content: "你是一个翻译词汇助手。只针对原文解释关键词汇；参考译文只作为理解辅助。回答要简洁，使用\(targetLanguage.displayName)。"
+            ),
+            ChatMessage(
+                role: "user",
+                content: """
+                请从原文中尽量找出所有值得解释的关键词或短语，由你根据原文复杂度决定解释数量。跳过过于简单、没有学习价值的词。
+                每条使用一行，格式为：原词/短语 — 含义 — 语境或用法 — 常见译法。
+                如果没有需要特别解释的关键词汇，只输出：无需要特别解释的关键词汇。
+
+                原文：
+                \(sourceText)
+
+                参考译文（\(targetLanguage.displayName)）：
+                \(translation)
+                """
+            )
+        ]
+    }
+
     public static func followUpMessages(
         sourceText: String,
         translation: String,

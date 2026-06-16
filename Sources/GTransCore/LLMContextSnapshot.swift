@@ -2,12 +2,15 @@ import Foundation
 
 public enum LLMContextRequestKind: String, Codable, Equatable, Sendable {
     case translation
+    case keywordExplanation
     case followUp
 
     public var displayName: String {
         switch self {
         case .translation:
             return "翻译"
+        case .keywordExplanation:
+            return "关键词汇"
         case .followUp:
             return "追问"
         }
@@ -17,12 +20,14 @@ public enum LLMContextRequestKind: String, Codable, Equatable, Sendable {
 public struct LLMContextSessionSummary: Codable, Equatable, Sendable {
     public var sourceText: String
     public var translation: String
+    public var keywordExplanation: String
     public var followUps: [FollowUpTurn]
     public var state: String
 
-    public init(sourceText: String, translation: String, followUps: [FollowUpTurn], state: String) {
+    public init(sourceText: String, translation: String, keywordExplanation: String, followUps: [FollowUpTurn], state: String) {
         self.sourceText = sourceText
         self.translation = translation
+        self.keywordExplanation = keywordExplanation
         self.followUps = followUps
         self.state = state
     }

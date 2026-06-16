@@ -115,6 +115,19 @@ struct LogicCheck {
         expect(PromptBuilder.quickFollowUpQuestion(for: "更自然表达", targetLanguage: .simplifiedChinese) == "请基于原文和参考译文，给出更自然的简体中文表达。只输出改写后的简体中文译文；不要解释，不要分析原文。", "natural expression targets target language")
         expect(PromptBuilder.quickFollowUpQuestion(for: "语法分析", targetLanguage: .simplifiedChinese) == "请针对原文做语法分析，说明句子结构、关键成分和容易误解的点。不要分析参考译文，除非它影响理解。", "grammar targets source")
         expect(PromptBuilder.quickFollowUpQuestion(for: "这个译文自然吗", targetLanguage: .simplifiedChinese) == "这个译文自然吗", "custom translation question preserved")
+        let keywordMessages = PromptBuilder.keywordExplanationMessages(
+            sourceText: "The product team needs a clear threshold before rolling out the experiment.",
+            translation: "产品团队需要一个明确的阈值，才能推出这个实验。",
+            targetLanguage: .simplifiedChinese
+        )
+        expect(keywordMessages[0].content.contains("只针对原文解释关键词汇"), "keyword explanation targets source")
+        expect(keywordMessages[0].content.contains("参考译文只作为理解辅助"), "keyword translation is reference")
+        expect(keywordMessages[1].content.contains("尽量找出所有值得解释的关键词或短语"), "keyword coverage guidance")
+        expect(keywordMessages[1].content.contains("由你根据原文复杂度决定解释数量"), "keyword count left to model")
+        expect(keywordMessages[1].content.contains("原词/短语 — 含义 — 语境或用法 — 常见译法"), "keyword output format")
+        expect(keywordMessages[1].content.contains("无需要特别解释的关键词汇"), "keyword fallback")
+        expect(keywordMessages[1].content.contains("原文：\nThe product team needs a clear threshold before rolling out the experiment."), "keyword source included")
+        expect(keywordMessages[1].content.contains("参考译文（简体中文）：\n产品团队需要一个明确的阈值，才能推出这个实验。"), "keyword translation included")
         let historyMessages = PromptBuilder.followUpMessages(
             sourceText: "threshold",
             translation: "阈值",
@@ -191,6 +204,7 @@ struct LogicCheck {
             expect(session.lastLLMContextSnapshot?.jsonString().contains("secret-token") == false, "context JSON omits API key")
             expect(session.lastLLMContextSnapshot?.plainTextDescription().contains("Messages:") == true, "context text copy")
             session.translation = "你好"
+            session.keywordExplanation = "Hello — 你好 — 问候语 — 你好"
             session.ask(
                 question: PromptBuilder.quickFollowUpQuestion(for: "解释用法", targetLanguage: .simplifiedChinese),
                 displayQuestion: "解释用法",
@@ -225,6 +239,7 @@ struct LogicCheck {
             session.close()
             expect(session.sourceText.isEmpty, "source cleared")
             expect(session.translation.isEmpty, "translation cleared")
+            expect(session.keywordExplanation.isEmpty, "keyword explanation cleared")
             expect(session.followUps.isEmpty, "follow ups cleared")
             expect(session.lastLLMContextSnapshot == nil, "context snapshot cleared")
             expect(session.isClosed, "closed flag")
