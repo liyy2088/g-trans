@@ -94,6 +94,39 @@ struct LogicCheck {
         expect(PromptBuilder.sourceFocusedFollowUpQuestion(for: "语法分析") == "请针对原文做语法分析。", "grammar targets source")
         expect(PromptBuilder.sourceFocusedFollowUpQuestion(for: "这个译文自然吗") == "这个译文自然吗", "custom translation question preserved")
 
+        expect(
+            SelectionService.preferredAccessibilitySelection(
+                markerText: "You have a new rate limit reset available\nYou were granted a rate limit reset.",
+                rangeText: "range text",
+                selectedText: "selected text"
+            ) == "You have a new rate limit reset available\nYou were granted a rate limit reset.",
+            "marker text preferred"
+        )
+        expect(
+            SelectionService.preferredAccessibilitySelection(
+                markerText: "  \n",
+                rangeText: "range text",
+                selectedText: "selected text"
+            ) == "range text",
+            "range text fallback"
+        )
+        expect(
+            SelectionService.preferredAccessibilitySelection(
+                markerText: nil,
+                rangeText: "",
+                selectedText: "selected text"
+            ) == "selected text",
+            "selected text fallback"
+        )
+        expect(
+            SelectionService.preferredAccessibilitySelection(
+                markerText: nil,
+                rangeText: " ",
+                selectedText: "\n"
+            ) == nil,
+            "empty accessibility candidates"
+        )
+
         let session = TranslationSession(sourceText: "Hello", targetLanguage: .simplifiedChinese)
         await MainActor.run {
             session.translation = "你好"

@@ -9,10 +9,28 @@ public enum SelectionError: Error, Equatable {
 }
 
 public struct SelectionService {
+    private enum WebAccessibility {
+        static let selectedTextMarkerRangeAttribute = "AXSelectedTextMarkerRange" as CFString
+        static let attributedStringForTextMarkerRangeParameterizedAttribute = "AXAttributedStringForTextMarkerRange" as CFString
+    }
+
     private let pasteboard: NSPasteboard
 
     public init(pasteboard: NSPasteboard = .general) {
         self.pasteboard = pasteboard
+    }
+
+    static func preferredAccessibilitySelection(
+        markerText: String?,
+        rangeText: String?,
+        selectedText: String?
+    ) -> String? {
+        [markerText, rangeText, selectedText].first { text in
+            guard let text else {
+                return false
+            }
+            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        } ?? nil
     }
 
     @MainActor
@@ -49,8 +67,67 @@ public struct SelectionService {
               let focused else {
             return nil
         }
+        let focusedElement = focused as! AXUIElement
+        let markerText = readWebTextMarkerSelection(from: focusedElement)
+        let rangeText = readTextRangeSelection(from: focusedElement)
+        let selectedText = readSelectedTextAttribute(from: focusedElement)
+        return Self.preferredAccessibilitySelection(
+            markerText: markerText,
+            rangeText: rangeText,
+            selectedText: selectedText
+        )
+    }
+
+    @MainActor
+    private func readWebTextMarkerSelection(from element: AXUIElement) -> String? {
+        var markerRange: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            WebAccessibility.selectedTextMarkerRangeAttribute,
+            &markerRange
+        ) == .success, let markerRange else {
+            return nil
+        }
+
+        var attributedText: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            element,
+            WebAccessibility.attributedStringForTextMarkerRangeParameterizedAttribute,
+            markerRange,
+            &attributedText
+        ) == .success else {
+            return nil
+        }
+        return (attributedText as? NSAttributedString)?.string
+    }
+
+    @MainActor
+    private func readTextRangeSelection(from element: AXUIElement) -> String? {
+        var selectedRange: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            kAXSelectedTextRangeAttribute as CFString,
+            &selectedRange
+        ) == .success, let selectedRange else {
+            return nil
+        }
+
+        var selectedText: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            element,
+            kAXStringForRangeParameterizedAttribute as CFString,
+            selectedRange,
+            &selectedText
+        ) == .success else {
+            return nil
+        }
+        return selectedText as? String
+    }
+
+    @MainActor
+    private func readSelectedTextAttribute(from element: AXUIElement) -> String? {
         var selected: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(focused as! AXUIElement, kAXSelectedTextAttribute as CFString, &selected) == .success else {
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &selected) == .success else {
             return nil
         }
         return selected as? String
