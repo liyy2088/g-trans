@@ -8,13 +8,15 @@ struct TranslationPanelView: View {
     @State private var manualText = ""
     @State private var manualHasMarkedText = false
     @State private var followUpText = ""
-    @State private var sourceExpanded = false
+    @State private var sourceTextHeight: CGFloat = 28
     @State private var hoveredActionTitle: String?
     @AppStorage("resultActionStackExpanded.v2") private var actionStackExpanded = false
     @FocusState private var manualFocused: Bool
     @FocusState private var followUpFocused: Bool
     private let outputBottomID = "output-bottom"
     private let floatingActionRailWidth: CGFloat = 52
+    private let sourceTextMinHeight: CGFloat = 28
+    private let sourceTextMaxHeight: CGFloat = 160
 
     init(appState: AppState, initialMode: PanelMode) {
         self.appState = appState
@@ -155,50 +157,12 @@ struct TranslationPanelView: View {
     }
 
     private var sourcePreview: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("原文")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if sourceCanExpand {
-                    Button(action: toggleSourceExpansion) {
-                        SourceExpansionIcon(isExpanded: sourceExpanded)
-                            .frame(width: 24, height: 24)
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help(sourceExpanded ? "收起原文" : "展开原文")
-                    .accessibilityLabel(sourceExpanded ? "收起原文" : "展开原文")
-                }
-            }
-            if sourceExpanded {
-                SelectableSourceText(text: appState.session.sourceText, isExpanded: true)
-                    .frame(maxHeight: 160)
-                .padding(8)
-                .background(Color.secondary.opacity(0.06))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-            } else {
-                SelectableSourceText(text: appState.session.sourceText, isExpanded: false)
-                    .frame(height: 22)
-            }
-        }
+        SelectableSourceText(text: appState.session.sourceText, measuredHeight: $sourceTextHeight)
+            .frame(height: sourceVisibleHeight)
     }
 
-    private func toggleSourceExpansion() {
-        guard sourceCanExpand else {
-            return
-        }
-        var transaction = Transaction()
-        transaction.animation = nil
-        withTransaction(transaction) {
-            sourceExpanded.toggle()
-        }
-    }
-
-    private var sourceCanExpand: Bool {
-        appState.session.sourceText.count > 120 || appState.session.sourceText.split(whereSeparator: \.isNewline).count > 3
+    private var sourceVisibleHeight: CGFloat {
+        min(max(sourceTextHeight, sourceTextMinHeight), sourceTextMaxHeight)
     }
 
     private var translationArea: some View {
@@ -572,7 +536,6 @@ struct TranslationPanelView: View {
         manualText = ""
         manualHasMarkedText = false
         followUpText = ""
-        sourceExpanded = false
         hoveredActionTitle = nil
         mode = .manualInput
         DispatchQueue.main.async {
@@ -581,69 +544,24 @@ struct TranslationPanelView: View {
     }
 }
 
-private struct SourceExpansionIcon: View {
-    let isExpanded: Bool
-
-    var body: some View {
-        GeometryReader { proxy in
-            Path { path in
-                let size = min(proxy.size.width, proxy.size.height)
-                let inset = isExpanded ? size * 0.22 : size * 0.28
-                let length = isExpanded ? size * 0.16 : size * 0.18
-                if isExpanded {
-                    addCollapseCorners(to: &path, inset: inset, length: length, size: size)
-                } else {
-                    addExpandCorners(to: &path, inset: inset, length: length, size: size)
-                }
-            }
-            .stroke(
-                Color.primary.opacity(0.68),
-                style: StrokeStyle(lineWidth: 1.4, lineCap: .butt, lineJoin: .miter)
-            )
-        }
-        .padding(1)
-    }
-
-    private func addExpandCorners(to path: inout Path, inset: CGFloat, length: CGFloat, size: CGFloat) {
-        let min = inset
-        let max = size - inset
-
-        // 展开：左上和右下两角向外打开。
-        path.move(to: CGPoint(x: min + length, y: min))
-        path.addLine(to: CGPoint(x: min, y: min))
-        path.addLine(to: CGPoint(x: min, y: min + length))
-
-        path.move(to: CGPoint(x: max - length, y: max))
-        path.addLine(to: CGPoint(x: max, y: max))
-        path.addLine(to: CGPoint(x: max, y: max - length))
-    }
-
-    private func addCollapseCorners(to path: inout Path, inset: CGFloat, length: CGFloat, size: CGFloat) {
-        let min = inset
-        let max = size - inset
-
-        // 收起：保持同一条左上-右下轴，角标方向向内收拢。
-        path.move(to: CGPoint(x: min, y: min + length))
-        path.addLine(to: CGPoint(x: min + length, y: min + length))
-        path.addLine(to: CGPoint(x: min + length, y: min))
-
-        path.move(to: CGPoint(x: max, y: max - length))
-        path.addLine(to: CGPoint(x: max - length, y: max - length))
-        path.addLine(to: CGPoint(x: max - length, y: max))
-    }
-}
-
 private struct SelectableSourceText: NSViewRepresentable {
     let text: String
-    let isExpanded: Bool
+    @Binding var measuredHeight: CGFloat
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(measuredHeight: $measuredHeight)
+    }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
+        let scrollView = MeasuringScrollView()
         scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = isExpanded
+        scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
+        scrollView.onLayout = {
+            context.coordinator.updateMeasuredHeight(in: scrollView)
+        }
 
         let textView = NSTextView()
         textView.drawsBackground = false
@@ -662,25 +580,69 @@ private struct SelectableSourceText: NSViewRepresentable {
         textView.autoresizingMask = [.width]
         textView.string = text
 
-        applyLayout(to: textView)
+        applyLayout(to: textView, in: scrollView)
         scrollView.documentView = textView
+        context.coordinator.updateMeasuredHeight(in: scrollView)
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        scrollView.hasVerticalScroller = isExpanded
         guard let textView = scrollView.documentView as? NSTextView else {
             return
         }
         if textView.string != text {
             textView.string = text
         }
-        applyLayout(to: textView)
+        applyLayout(to: textView, in: scrollView)
+        context.coordinator.updateMeasuredHeight(in: scrollView)
     }
 
-    private func applyLayout(to textView: NSTextView) {
-        textView.textContainer?.maximumNumberOfLines = isExpanded ? 0 : 1
-        textView.textContainer?.lineBreakMode = isExpanded ? .byWordWrapping : .byTruncatingTail
+    private func applyLayout(to textView: NSTextView, in scrollView: NSScrollView) {
+        textView.textContainer?.maximumNumberOfLines = 0
+        textView.textContainer?.lineBreakMode = .byWordWrapping
+        textView.textContainer?.containerSize = NSSize(
+            width: scrollView.contentSize.width,
+            height: .greatestFiniteMagnitude
+        )
+    }
+
+    final class Coordinator {
+        @Binding private var measuredHeight: CGFloat
+
+        init(measuredHeight: Binding<CGFloat>) {
+            _measuredHeight = measuredHeight
+        }
+
+        func updateMeasuredHeight(in scrollView: NSScrollView) {
+            guard let textView = scrollView.documentView as? NSTextView,
+                  let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer
+            else {
+                return
+            }
+
+            textContainer.containerSize = NSSize(
+                width: scrollView.contentSize.width,
+                height: .greatestFiniteMagnitude
+            )
+            layoutManager.ensureLayout(for: textContainer)
+            let contentHeight = ceil(layoutManager.usedRect(for: textContainer).height + textView.textContainerInset.height * 2)
+
+            DispatchQueue.main.async {
+                if abs(self.measuredHeight - contentHeight) > 0.5 {
+                    self.measuredHeight = contentHeight
+                }
+            }
+        }
+    }
+
+    final class MeasuringScrollView: NSScrollView {
+        var onLayout: (() -> Void)?
+
+        override func layout() {
+            super.layout()
+            onLayout?()
+        }
     }
 }
 
