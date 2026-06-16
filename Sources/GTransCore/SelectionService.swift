@@ -25,12 +25,41 @@ public struct SelectionService {
         rangeText: String?,
         selectedText: String?
     ) -> String? {
-        [markerText, rangeText, selectedText].first { text in
-            guard let text else {
-                return false
+        if let markerText = nonEmpty(markerText) {
+            return markerText
+        }
+
+        let selectedText = nonEmpty(selectedText)
+        let rangeText = nonEmpty(rangeText)
+        if let selectedText {
+            if let rangeText, shouldPreferRangeText(rangeText, over: selectedText) {
+                return rangeText
             }
-            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        } ?? nil
+            return selectedText
+        }
+
+        return rangeText
+    }
+
+    private static func nonEmpty(_ text: String?) -> String? {
+        guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return text
+    }
+
+    private static func shouldPreferRangeText(_ rangeText: String, over selectedText: String) -> Bool {
+        rangeText.contains(where: \.isNewline)
+            && !selectedText.contains(where: \.isNewline)
+            && collapsedWhitespace(rangeText) == collapsedWhitespace(selectedText)
+    }
+
+    private static func collapsedWhitespace(_ text: String) -> String {
+        text.unicodeScalars
+            .lazy
+            .filter { !CharacterSet.whitespacesAndNewlines.contains($0) }
+            .map(String.init)
+            .joined()
     }
 
     @MainActor

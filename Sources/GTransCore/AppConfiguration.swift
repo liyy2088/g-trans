@@ -119,7 +119,7 @@ public struct AppConfiguration: Equatable, Sendable {
     }
 }
 
-public enum TargetLanguage: String, CaseIterable, Identifiable, Sendable {
+public enum TargetLanguage: String, CaseIterable, Codable, Identifiable, Sendable {
     case simplifiedChinese = "zh-Hans"
     case english = "en"
     case japanese = "ja"

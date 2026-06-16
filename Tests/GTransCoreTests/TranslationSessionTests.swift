@@ -7,6 +7,12 @@ final class TranslationSessionTests: XCTestCase {
         let session = TranslationSession(sourceText: "Hello", targetLanguage: .simplifiedChinese)
         session.translation = "你好"
         session.followUps = [FollowUpTurn(question: "解释用法", answer: "问候语")]
+        session.runTranslation(
+            client: LLMClient(session: ContextSnapshotStubURLSession()),
+            profile: testProfile,
+            streamingEnabled: true
+        )
+        XCTAssertNotNil(session.lastLLMContextSnapshot)
 
         session.close()
 
@@ -14,6 +20,7 @@ final class TranslationSessionTests: XCTestCase {
         XCTAssertTrue(session.translation.isEmpty)
         XCTAssertTrue(session.followUps.isEmpty)
         XCTAssertNil(session.activeFollowUpQuestion)
+        XCTAssertNil(session.lastLLMContextSnapshot)
         XCTAssertTrue(session.isClosed)
     }
 
@@ -21,6 +28,12 @@ final class TranslationSessionTests: XCTestCase {
         let session = TranslationSession(sourceText: "Hello", targetLanguage: .simplifiedChinese)
         session.translation = "你好"
         session.followUps = [FollowUpTurn(question: "解释用法", answer: "问候语")]
+        session.runTranslation(
+            client: LLMClient(session: ContextSnapshotStubURLSession()),
+            profile: testProfile,
+            streamingEnabled: true
+        )
+        XCTAssertNotNil(session.lastLLMContextSnapshot)
 
         session.start(sourceText: "Good morning", targetLanguage: .simplifiedChinese)
 
@@ -28,6 +41,147 @@ final class TranslationSessionTests: XCTestCase {
         XCTAssertTrue(session.translation.isEmpty)
         XCTAssertTrue(session.followUps.isEmpty)
         XCTAssertNil(session.activeFollowUpQuestion)
+        XCTAssertNil(session.lastLLMContextSnapshot)
         XCTAssertEqual(session.state, .idle)
+    }
+
+    func runTranslationStoresLLMContextSnapshot() throws {
+        let session = TranslationSession(sourceText: "Hello", targetLanguage: .simplifiedChinese)
+        let expectedMessages = PromptBuilder.translationMessages(
+            sourceText: "Hello",
+            targetLanguage: .simplifiedChinese
+        )
+
+        session.runTranslation(
+            client: LLMClient(session: ContextSnapshotStubURLSession()),
+            profile: testProfile,
+            streamingEnabled: true
+        )
+
+        let snapshot = try XCTUnwrap(session.lastLLMContextSnapshot)
+        XCTAssertEqual(snapshot.requestKind, .translation)
+        XCTAssertEqual(snapshot.profileName, "本地 Ollama")
+        XCTAssertEqual(snapshot.baseURL.absoluteString, "http://localhost:11434/v1/")
+        XCTAssertEqual(snapshot.model, "gemma4:12b-mlx")
+        XCTAssertTrue(snapshot.streamingEnabled)
+        XCTAssertEqual(snapshot.targetLanguage, .simplifiedChinese)
+        XCTAssertEqual(snapshot.messages, expectedMessages)
+        XCTAssertEqual(snapshot.sessionSummary.sourceText, "Hello")
+        XCTAssertFalse(snapshot.jsonString().contains("secret-token"))
+    }
+
+    func askStoresFollowUpLLMContextSnapshot() throws {
+        let session = TranslationSession(sourceText: "threshold", targetLanguage: .simplifiedChinese)
+        session.translation = "阈值"
+
+        session.ask(
+            question: PromptBuilder.quickFollowUpQuestion(for: "解释用法", targetLanguage: .simplifiedChinese),
+            displayQuestion: "解释用法",
+            client: LLMClient(session: ContextSnapshotStubURLSession()),
+            profile: testProfile,
+            streamingEnabled: false
+        )
+
+        let snapshot = try XCTUnwrap(session.lastLLMContextSnapshot)
+        XCTAssertEqual(snapshot.requestKind, .followUp)
+        XCTAssertFalse(snapshot.streamingEnabled)
+        XCTAssertFalse(snapshot.messages.contains(ChatMessage(role: "user", content: "解释用法")))
+        XCTAssertFalse(snapshot.messages.contains(ChatMessage(role: "assistant", content: "")))
+        XCTAssertEqual(snapshot.messages.last, ChatMessage(role: "user", content: "请针对原文解释这个表达的含义、常见用法和适用语境。不要分析参考译文，除非它影响理解。"))
+        XCTAssertEqual(
+            snapshot.sessionSummary.followUps,
+            [
+                FollowUpTurn(
+                    question: "解释用法",
+                    llmQuestion: "请针对原文解释这个表达的含义、常见用法和适用语境。不要分析参考译文，除非它影响理解。",
+                    answer: ""
+                )
+            ]
+        )
+        XCTAssertFalse(snapshot.jsonString().contains("secret-token"))
+        XCTAssertTrue(snapshot.plainTextDescription().contains("Messages:"))
+    }
+
+    func askReplaysPreviousModelQuestionInFollowUpHistory() {
+        let session = TranslationSession(sourceText: "threshold", targetLanguage: .simplifiedChinese)
+        session.translation = "阈值"
+        session.followUps = [
+            FollowUpTurn(
+                question: "解释用法",
+                llmQuestion: "请针对原文解释这个表达的含义、常见用法和适用语境。不要分析参考译文，除非它影响理解。",
+                answer: "表示触发某件事的界限。"
+            )
+        ]
+
+        session.ask(
+            question: "再给两个例句",
+            client: LLMClient(session: ContextSnapshotStubURLSession()),
+            profile: testProfile,
+            streamingEnabled: false
+        )
+
+        let snapshot = session.lastLLMContextSnapshot
+        XCTAssertTrue(snapshot?.messages.contains(ChatMessage(role: "user", content: "请针对原文解释这个表达的含义、常见用法和适用语境。不要分析参考译文，除非它影响理解。")) == true)
+        XCTAssertFalse(snapshot?.messages.contains(ChatMessage(role: "user", content: "解释用法")) == true)
+        XCTAssertTrue(snapshot?.messages.contains(ChatMessage(role: "assistant", content: "表示触发某件事的界限。")) == true)
+        XCTAssertEqual(snapshot?.messages.last, ChatMessage(role: "user", content: "再给两个例句"))
+    }
+
+    func askAddsAssistantResponseToLLMContextSnapshot() async throws {
+        let session = TranslationSession(sourceText: "threshold", targetLanguage: .simplifiedChinese)
+        session.translation = "阈值"
+
+        session.ask(
+            question: PromptBuilder.quickFollowUpQuestion(for: "解释用法", targetLanguage: .simplifiedChinese),
+            displayQuestion: "解释用法",
+            client: LLMClient(session: ContextSnapshotStubURLSession()),
+            profile: testProfile,
+            streamingEnabled: false
+        )
+
+        try await waitForContextAssistantResponse(in: session)
+
+        let snapshot = try XCTUnwrap(session.lastLLMContextSnapshot)
+        XCTAssertEqual(snapshot.messages.last, ChatMessage(role: "assistant", content: "回答"))
+    }
+
+    private func waitForContextAssistantResponse(in session: TranslationSession) async throws {
+        for _ in 0..<20 {
+            if session.lastLLMContextSnapshot?.messages.last == ChatMessage(role: "assistant", content: "回答") {
+                return
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTFail("Timed out waiting for context assistant response")
+    }
+
+    private var testProfile: LLMProfile {
+        LLMProfile(
+            name: "本地 Ollama",
+            baseURL: URL(string: "http://localhost:11434/v1/")!,
+            apiKey: "secret-token",
+            model: "gemma4:12b-mlx"
+        )
+    }
+}
+
+private final class ContextSnapshotStubURLSession: URLSessionProtocol, @unchecked Sendable {
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        let data = Data(#"{"choices":[{"message":{"content":"回答"}}]}"#.utf8)
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+        return (data, response)
+    }
+
+    func lines(for request: URLRequest) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.yield(#"data: {"choices":[{"delta":{"content":"回答"}}]}"#)
+            continuation.yield("data: [DONE]")
+            continuation.finish()
+        }
     }
 }

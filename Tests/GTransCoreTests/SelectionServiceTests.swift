@@ -15,14 +15,27 @@ final class SelectionServiceTests: XCTestCase {
         )
     }
 
-    func rangeTextIsPreferredWhenMarkerTextIsEmpty() {
+    func selectedTextIsPreferredWhenRangeTextDoesNotMatch() {
         let selected = SelectionService.preferredAccessibilitySelection(
             markerText: "  \n",
-            rangeText: "range text",
+            rangeText: "unrelated range text",
             selectedText: "selected text"
         )
 
-        XCTAssertEqual(selected, "range text")
+        XCTAssertEqual(selected, "selected text")
+    }
+
+    func rangeTextIsPreferredWhenItOnlyRestoresDroppedNewline() {
+        let selected = SelectionService.preferredAccessibilitySelection(
+            markerText: nil,
+            rangeText: "You have a new rate limit reset available\nYou were granted a rate limit reset.",
+            selectedText: "You have a new rate limit reset availableYou were granted a rate limit reset."
+        )
+
+        XCTAssertEqual(
+            selected,
+            "You have a new rate limit reset available\nYou were granted a rate limit reset."
+        )
     }
 
     func selectedTextIsUsedWhenMarkerAndRangeTextAreEmpty() {

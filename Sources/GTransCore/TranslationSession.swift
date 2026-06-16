@@ -1,13 +1,19 @@
 import Combine
 import Foundation
 
-public struct FollowUpTurn: Equatable, Sendable {
+public struct FollowUpTurn: Codable, Equatable, Sendable {
     public var question: String
+    public var llmQuestion: String?
     public var answer: String
 
-    public init(question: String, answer: String) {
+    public init(question: String, llmQuestion: String? = nil, answer: String) {
         self.question = question
+        self.llmQuestion = llmQuestion
         self.answer = answer
+    }
+
+    public var modelQuestion: String {
+        llmQuestion ?? question
     }
 }
 
@@ -26,6 +32,7 @@ public final class TranslationSession: ObservableObject {
     @Published public var translation: String
     @Published public var followUps: [FollowUpTurn]
     @Published public private(set) var activeFollowUpQuestion: String?
+    @Published public private(set) var lastLLMContextSnapshot: LLMContextSnapshot?
     @Published public var state: TranslationState
     @Published public var isClosed: Bool
     private var task: Task<Void, Never>?
@@ -36,6 +43,7 @@ public final class TranslationSession: ObservableObject {
         self.translation = ""
         self.followUps = []
         self.activeFollowUpQuestion = nil
+        self.lastLLMContextSnapshot = nil
         self.state = .idle
         self.isClosed = false
     }
@@ -47,6 +55,7 @@ public final class TranslationSession: ObservableObject {
         translation = ""
         followUps = []
         activeFollowUpQuestion = nil
+        lastLLMContextSnapshot = nil
         state = .idle
         isClosed = false
     }
@@ -66,6 +75,12 @@ public final class TranslationSession: ObservableObject {
             ]
         )
         let messages = PromptBuilder.translationMessages(sourceText: sourceText, targetLanguage: targetLanguage)
+        lastLLMContextSnapshot = makeContextSnapshot(
+            requestKind: .translation,
+            profile: profile,
+            streamingEnabled: streamingEnabled,
+            messages: messages
+        )
         task = Task { [weak self] in
             await self?.consume(client: client, profile: profile, streamingEnabled: streamingEnabled, messages: messages) { session, token in
                 session.translation += token
@@ -83,7 +98,8 @@ public final class TranslationSession: ObservableObject {
         cancel()
         state = .asking
         activeFollowUpQuestion = storedQuestion
-        followUps.append(FollowUpTurn(question: storedQuestion, answer: ""))
+        let historyBeforeQuestion = followUps
+        followUps.append(FollowUpTurn(question: storedQuestion, llmQuestion: trimmed, answer: ""))
         var answer = ""
         AppDiagnostics.info(
             "follow_up_request_start",
@@ -98,8 +114,14 @@ public final class TranslationSession: ObservableObject {
             sourceText: sourceText,
             translation: translation,
             targetLanguage: targetLanguage,
-            history: followUps,
+            history: historyBeforeQuestion,
             question: trimmed
+        )
+        lastLLMContextSnapshot = makeContextSnapshot(
+            requestKind: .followUp,
+            profile: profile,
+            streamingEnabled: streamingEnabled,
+            messages: messages
         )
         task = Task { [weak self] in
             await self?.consume(client: client, profile: profile, streamingEnabled: streamingEnabled, messages: messages) { session, token in
@@ -107,7 +129,7 @@ public final class TranslationSession: ObservableObject {
                 if session.followUps.last?.question == storedQuestion {
                     session.followUps[session.followUps.count - 1].answer = answer
                 } else {
-                    session.followUps.append(FollowUpTurn(question: storedQuestion, answer: answer))
+                    session.followUps.append(FollowUpTurn(question: storedQuestion, llmQuestion: trimmed, answer: answer))
                 }
             }
         }
@@ -128,8 +150,32 @@ public final class TranslationSession: ObservableObject {
         translation = ""
         followUps = []
         activeFollowUpQuestion = nil
+        lastLLMContextSnapshot = nil
         state = .idle
         isClosed = true
+    }
+
+    private func makeContextSnapshot(
+        requestKind: LLMContextRequestKind,
+        profile: LLMProfile,
+        streamingEnabled: Bool,
+        messages: [ChatMessage]
+    ) -> LLMContextSnapshot {
+        LLMContextSnapshot(
+            requestKind: requestKind,
+            profileName: profile.displayName,
+            baseURL: profile.baseURL,
+            model: profile.model,
+            streamingEnabled: streamingEnabled,
+            targetLanguage: targetLanguage,
+            messages: messages,
+            sessionSummary: LLMContextSessionSummary(
+                sourceText: sourceText,
+                translation: translation,
+                followUps: followUps,
+                state: state.contextDescription
+            )
+        )
     }
 
     private func consume(
@@ -145,11 +191,14 @@ public final class TranslationSession: ObservableObject {
                 streamingEnabled: streamingEnabled,
                 messages: messages
             )
+            var assistantResponse = ""
             for try await token in stream {
                 guard !Task.isCancelled, !isClosed else {
                     return
                 }
                 append(self, token)
+                assistantResponse += token
+                updateContextAssistantResponse(assistantResponse)
             }
             if !Task.isCancelled, !isClosed {
                 state = .idle
@@ -172,6 +221,37 @@ public final class TranslationSession: ObservableObject {
                     ]
                 )
             }
+        }
+    }
+
+    private func updateContextAssistantResponse(_ response: String) {
+        guard !response.isEmpty,
+              var snapshot = lastLLMContextSnapshot else {
+            return
+        }
+        if let lastIndex = snapshot.messages.indices.last,
+           snapshot.messages[lastIndex].role == "assistant" {
+            snapshot.messages[lastIndex].content = response
+        } else {
+            snapshot.messages.append(ChatMessage(role: "assistant", content: response))
+        }
+        lastLLMContextSnapshot = snapshot
+    }
+}
+
+extension TranslationState {
+    var contextDescription: String {
+        switch self {
+        case .idle:
+            return "idle"
+        case .translating:
+            return "translating"
+        case .asking:
+            return "asking"
+        case .failed(let message):
+            return "failed: \(message)"
+        case .cancelled:
+            return "cancelled"
         }
     }
 }

@@ -10,6 +10,7 @@ struct TranslationPanelView: View {
     @State private var followUpText = ""
     @State private var sourceTextHeight: CGFloat = 28
     @State private var hoveredActionTitle: String?
+    @State private var showingContextDebug = false
     @AppStorage("resultActionStackExpanded.v2") private var actionStackExpanded = false
     @FocusState private var manualFocused: Bool
     @FocusState private var followUpFocused: Bool
@@ -17,6 +18,33 @@ struct TranslationPanelView: View {
     private let floatingActionRailWidth: CGFloat = 52
     private let sourceTextMinHeight: CGFloat = 28
     private let sourceTextMaxHeight: CGFloat = 160
+
+    private enum FloatingAction: String, Identifiable {
+        case copyTranslation
+        case regenerate
+        case newTranslation
+        case explainUsage
+        case examples
+        case naturalExpression
+        case grammar
+        case copySource
+        case context
+        case settings
+
+        var id: String { rawValue }
+    }
+
+    private let primaryFloatingActions: [FloatingAction] = [
+        .regenerate,
+        .newTranslation
+    ]
+    private let expandedFloatingActions: [FloatingAction] = [
+        .explainUsage,
+        .examples,
+        .naturalExpression,
+        .grammar,
+        .context
+    ]
 
     init(appState: AppState, initialMode: PanelMode) {
         self.appState = appState
@@ -42,6 +70,20 @@ struct TranslationPanelView: View {
         }
         .transaction { transaction in
             transaction.animation = nil
+        }
+        .sheet(isPresented: $showingContextDebug) {
+            if let snapshot = appState.session.lastLLMContextSnapshot {
+                LLMContextDebugView(
+                    snapshot: snapshot,
+                    sourceText: appState.session.sourceText,
+                    translation: appState.session.translation,
+                    followUps: appState.session.followUps,
+                    stateTitle: appState.session.state.debugDisplayName
+                )
+            } else {
+                Text("暂无 LLM 上下文")
+                    .frame(width: 360, height: 160)
+            }
         }
     }
 
@@ -217,75 +259,13 @@ struct TranslationPanelView: View {
 
     private var floatingActions: some View {
         VStack(alignment: .trailing, spacing: 5) {
-            floatingActionButton(
-                title: appState.copiedTranslationFeedback ? "已复制译文" : "复制译文",
-                systemImage: appState.copiedTranslationFeedback ? "checkmark" : "doc.on.doc",
-                isDisabled: appState.session.translation.isEmpty
-            ) {
-                appState.copyTranslation()
-            }
-            floatingActionButton(
-                title: "重新生成",
-                systemImage: "arrow.clockwise",
-                loadingTitle: "正在重新生成",
-                isLoading: isTranslating,
-                isDisabled: appState.session.sourceText.isEmpty || isAskingFollowUp
-            ) {
-                appState.regenerate()
-            }
-            floatingActionButton(
-                title: "新翻译",
-                systemImage: "plus.rectangle.on.rectangle",
-                isEmphasized: true
-            ) {
-                beginNewTranslation()
+            ForEach(primaryFloatingActions) { action in
+                floatingActionView(action)
             }
             if actionStackExpanded {
                 Group {
-                    floatingActionButton(
-                        title: "解释用法",
-                        systemImage: "book",
-                        isLoading: isActiveFollowUp("解释用法"),
-                        isDisabled: shouldDisableFollowUpAction("解释用法")
-                    ) {
-                        askSourceFocused("解释用法")
-                    }
-                    floatingActionButton(
-                        title: "给例句",
-                        systemImage: "text.bubble",
-                        isLoading: isActiveFollowUp("给例句"),
-                        isDisabled: shouldDisableFollowUpAction("给例句")
-                    ) {
-                        askSourceFocused("给例句")
-                    }
-                    floatingActionButton(
-                        title: "更自然表达",
-                        systemImage: "sparkles",
-                        isLoading: isActiveFollowUp("更自然表达"),
-                        isDisabled: shouldDisableFollowUpAction("更自然表达")
-                    ) {
-                        askSourceFocused("更自然表达")
-                    }
-                    floatingActionButton(
-                        title: "语法分析",
-                        systemImage: "text.alignleft",
-                        isLoading: isActiveFollowUp("语法分析"),
-                        isDisabled: shouldDisableFollowUpAction("语法分析")
-                    ) {
-                        askSourceFocused("语法分析")
-                    }
-                    floatingActionButton(
-                        title: appState.copiedSourceFeedback ? "已复制原文" : "复制原文",
-                        systemImage: appState.copiedSourceFeedback ? "checkmark" : "doc.on.clipboard",
-                        isDisabled: appState.session.sourceText.isEmpty
-                    ) {
-                        appState.copySourceText()
-                    }
-                    floatingActionButton(
-                        title: "设置...",
-                        systemImage: "gearshape"
-                    ) {
-                        appState.openSettings()
+                    ForEach(expandedFloatingActions) { action in
+                        floatingActionView(action)
                     }
                 }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -302,8 +282,85 @@ struct TranslationPanelView: View {
         }
     }
 
-    private func askSourceFocused(_ title: String) {
-        appState.ask(PromptBuilder.sourceFocusedFollowUpQuestion(for: title), displayQuestion: title)
+    @ViewBuilder
+    private func floatingActionView(_ action: FloatingAction) -> some View {
+        switch action {
+        case .copyTranslation:
+            floatingActionButton(
+                title: appState.copiedTranslationFeedback ? "已复制译文" : "复制译文",
+                systemImage: appState.copiedTranslationFeedback ? "checkmark" : "doc.on.doc",
+                isDisabled: appState.session.translation.isEmpty
+            ) {
+                appState.copyTranslation()
+            }
+        case .regenerate:
+            floatingActionButton(
+                title: "重新生成",
+                systemImage: "arrow.clockwise",
+                loadingTitle: "正在重新生成",
+                isLoading: isTranslating,
+                isDisabled: appState.session.sourceText.isEmpty || isAskingFollowUp
+            ) {
+                appState.regenerate()
+            }
+        case .newTranslation:
+            floatingActionButton(
+                title: "新翻译",
+                systemImage: "plus.rectangle.on.rectangle",
+                isEmphasized: true
+            ) {
+                beginNewTranslation()
+            }
+        case .explainUsage:
+            followUpFloatingAction("解释用法", systemImage: "book")
+        case .examples:
+            followUpFloatingAction("给例句", systemImage: "text.bubble")
+        case .naturalExpression:
+            followUpFloatingAction("更自然表达", systemImage: "sparkles")
+        case .grammar:
+            followUpFloatingAction("语法分析", systemImage: "text.alignleft")
+        case .copySource:
+            floatingActionButton(
+                title: appState.copiedSourceFeedback ? "已复制原文" : "复制原文",
+                systemImage: appState.copiedSourceFeedback ? "checkmark" : "doc.on.clipboard",
+                isDisabled: appState.session.sourceText.isEmpty
+            ) {
+                appState.copySourceText()
+            }
+        case .context:
+            floatingActionButton(
+                title: "查看上下文",
+                systemImage: "doc.text",
+                isDisabled: appState.session.lastLLMContextSnapshot == nil
+            ) {
+                showingContextDebug = true
+            }
+        case .settings:
+            floatingActionButton(
+                title: "设置...",
+                systemImage: "gearshape"
+            ) {
+                appState.openSettings()
+            }
+        }
+    }
+
+    private func followUpFloatingAction(_ title: String, systemImage: String) -> some View {
+        floatingActionButton(
+            title: title,
+            systemImage: systemImage,
+            isLoading: isActiveFollowUp(title),
+            isDisabled: shouldDisableFollowUpAction(title)
+        ) {
+            askQuickFollowUp(title)
+        }
+    }
+
+    private func askQuickFollowUp(_ title: String) {
+        appState.ask(
+            PromptBuilder.quickFollowUpQuestion(for: title, targetLanguage: appState.session.targetLanguage),
+            displayQuestion: title
+        )
     }
 
     private var isAskingFollowUp: Bool {
@@ -540,6 +597,253 @@ struct TranslationPanelView: View {
         mode = .manualInput
         DispatchQueue.main.async {
             manualFocused = true
+        }
+    }
+}
+
+private struct LLMContextDebugView: View {
+    let snapshot: LLMContextSnapshot
+    let sourceText: String
+    let translation: String
+    let followUps: [FollowUpTurn]
+    let stateTitle: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    metadata
+                    messages
+                    sessionSummary
+                }
+                .padding(18)
+            }
+            Divider()
+            footer
+        }
+        .frame(minWidth: 720, minHeight: 560)
+        .onExitCommand {
+            dismiss()
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: "doc.text")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("LLM 上下文")
+                    .font(.headline)
+                Text("最后一次\(snapshot.requestKind.displayName)请求")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text("Esc 关闭")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .frame(height: 26)
+                .background(Color.secondary.opacity(0.07))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .padding(18)
+    }
+
+    private var metadata: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("请求信息")
+                .font(.subheadline.weight(.semibold))
+            LazyVGrid(columns: [GridItem(.fixed(110), alignment: .leading), GridItem(.flexible(), alignment: .leading)], alignment: .leading, spacing: 8) {
+                metadataRow("类型", snapshot.requestKind.displayName)
+                metadataRow("配置", snapshot.profileName)
+                metadataRow("Base URL", snapshot.baseURL.absoluteString)
+                metadataRow("Model", snapshot.model)
+                metadataRow("Streaming", snapshot.streamingEnabled ? "开启" : "关闭")
+                metadataRow("目标语言", snapshot.targetLanguage.displayName)
+                metadataRow("时间", Self.dateFormatter.string(from: snapshot.createdAt))
+            }
+        }
+        .debugSectionStyle()
+    }
+
+    private func metadataRow(_ title: String, _ value: String) -> some View {
+        Group {
+            Text(title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            Text(value.isEmpty ? "未设置" : value)
+                .font(.caption)
+                .textSelection(.enabled)
+        }
+    }
+
+    private var messages: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Messages")
+                .font(.subheadline.weight(.semibold))
+            ForEach(Array(snapshot.messages.enumerated()), id: \.offset) { index, message in
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Text("\(index + 1)")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 22, height: 22)
+                            .background(Color.secondary.opacity(0.10))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        Text(message.role)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(roleColor(message.role))
+                        Spacer()
+                        Text("\(message.content.count) 字")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(message.content)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .debugMessageStyle()
+            }
+        }
+        .debugSectionStyle()
+    }
+
+    private var sessionSummary: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("当前会话")
+                .font(.subheadline.weight(.semibold))
+            summaryBlock(title: "状态", text: stateTitle)
+            summaryBlock(title: "原文", text: sourceText)
+            summaryBlock(title: "译文", text: translation.isEmpty ? "暂无译文" : translation)
+            if followUps.isEmpty {
+                summaryBlock(title: "追问", text: "暂无追问")
+            } else {
+                ForEach(Array(followUps.enumerated()), id: \.offset) { index, turn in
+                    summaryBlock(title: "追问 \(index + 1)", text: "Q: \(turn.question)\nA: \(turn.answer.isEmpty ? "正在回答..." : turn.answer)")
+                }
+            }
+        }
+        .debugSectionStyle()
+    }
+
+    private func summaryBlock(title: String, text: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            Text(text)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 10) {
+            Text("复制内容不包含 API Key")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            debugActionButton(title: "复制文本", systemImage: "doc.on.doc") {
+                copy(snapshot.plainTextDescription())
+            }
+            debugActionButton(title: "复制 JSON", systemImage: "curlybraces") {
+                copy(snapshot.jsonString())
+            }
+            .keyboardShortcut("c", modifiers: [.command, .shift])
+        }
+        .padding(18)
+    }
+
+    private func debugActionButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.titleAndIcon)
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 11)
+                .frame(height: 34)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.92))
+                .foregroundStyle(Color.primary)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.08), radius: 8, y: 4)
+        }
+        .buttonStyle(.plain)
+        .help(title)
+        .accessibilityLabel(title)
+    }
+
+    private func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private func roleColor(_ role: String) -> Color {
+        switch role {
+        case "system":
+            return .purple
+        case "user":
+            return .accentColor
+        case "assistant":
+            return .green
+        default:
+            return .secondary
+        }
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .medium
+        return formatter
+    }()
+}
+
+private extension View {
+    func debugSectionStyle() -> some View {
+        padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.secondary.opacity(0.16), lineWidth: 1)
+            )
+    }
+
+    func debugMessageStyle() -> some View {
+        padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.secondary.opacity(0.055))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.secondary.opacity(0.08), lineWidth: 1)
+            )
+    }
+}
+
+private extension TranslationState {
+    var debugDisplayName: String {
+        switch self {
+        case .idle:
+            return "空闲"
+        case .translating:
+            return "正在翻译"
+        case .asking:
+            return "正在追问"
+        case .failed(let message):
+            return "失败：\(message)"
+        case .cancelled:
+            return "已取消"
         }
     }
 }
