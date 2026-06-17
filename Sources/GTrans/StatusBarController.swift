@@ -22,10 +22,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         openItem.target = self
         menu.addItem(openItem)
 
-        let logsItem = NSMenuItem(title: "打开日志目录", action: #selector(openLogDirectory), keyEquivalent: "")
-        logsItem.target = self
-        menu.addItem(logsItem)
-
         let settingsItem = NSMenuItem(title: "设置...", action: #selector(openSettings), keyEquivalent: "")
         settingsItem.target = self
         menu.addItem(settingsItem)
@@ -78,11 +74,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     @objc private func openSettings() {
         AppDiagnostics.info("status_menu_open_settings")
         appState?.openSettings()
-    }
-
-    @objc private func openLogDirectory() {
-        AppDiagnostics.info("status_menu_open_logs")
-        appState?.openLogDirectory()
     }
 
     @objc private func quit() {

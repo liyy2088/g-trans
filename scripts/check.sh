@@ -62,6 +62,7 @@ struct LogicCheck {
     static func main() async throws {
         expect(LanguageDirection.targetLanguage(for: "Hello world", defaultTarget: .simplifiedChinese) == .simplifiedChinese, "English should translate to Simplified Chinese by default")
         expect(LanguageDirection.targetLanguage(for: "你好世界", defaultTarget: .simplifiedChinese) == .english, "Simplified Chinese should switch to English")
+        expect(LanguageDirection.targetLanguage(for: "今日は良い天気です", defaultTarget: .simplifiedChinese) == .simplifiedChinese, "Japanese should keep Simplified Chinese target by default")
         expect(LanguageDirection.targetLanguage(for: "Hello world", defaultTarget: .english) == .simplifiedChinese, "English default should switch to Simplified Chinese for English source")
 
         let client = LLMClient()

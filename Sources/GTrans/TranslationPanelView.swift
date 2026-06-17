@@ -11,9 +11,12 @@ struct TranslationPanelView: View {
     @State private var sourceTextHeight: CGFloat = 28
     @State private var hoveredActionTitle: String?
     @State private var showingContextDebug = false
+    @State private var keepOutputAtTopDuringRegeneration = false
+    @State private var outputTopScrollRequest = 0
     @AppStorage("resultActionStackExpanded.v2") private var actionStackExpanded = false
     @FocusState private var manualFocused: Bool
     @FocusState private var followUpFocused: Bool
+    private let outputTopID = "output-top"
     private let outputBottomID = "output-bottom"
     private let floatingActionRailWidth: CGFloat = 52
     private let sourceTextMinHeight: CGFloat = 28
@@ -212,6 +215,9 @@ struct TranslationPanelView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
+                    Color.clear
+                        .frame(height: 1)
+                        .id(outputTopID)
                     Text(appState.session.translation.isEmpty ? "正在翻译..." : appState.session.translation)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
@@ -241,16 +247,22 @@ struct TranslationPanelView: View {
                 .padding(.trailing, floatingActionRailWidth)
             }
             .onChange(of: appState.session.translation) { _ in
-                scrollOutputToBottom(proxy)
+                scrollOutputAfterTranslationChange(proxy)
             }
             .onChange(of: appState.session.keywordExplanation) { _ in
-                scrollOutputToBottom(proxy)
+                scrollOutputAfterTranslationChange(proxy)
             }
             .onChange(of: appState.session.followUps.count) { _ in
                 scrollOutputToBottom(proxy)
             }
             .onChange(of: appState.session.followUps.last?.answer ?? "") { _ in
                 scrollOutputToBottom(proxy)
+            }
+            .onChange(of: appState.session.state) { _ in
+                finishKeepingOutputAtTopIfNeeded()
+            }
+            .onChange(of: outputTopScrollRequest) { _ in
+                scrollOutputToTop(proxy)
             }
         }
         .frame(minHeight: 170)
@@ -307,6 +319,41 @@ struct TranslationPanelView: View {
         }
     }
 
+    private func scrollOutputToTop(_ proxy: ScrollViewProxy) {
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.15)) {
+                proxy.scrollTo(outputTopID, anchor: .top)
+            }
+        }
+    }
+
+    private func scrollOutputAfterTranslationChange(_ proxy: ScrollViewProxy) {
+        if keepOutputAtTopDuringRegeneration {
+            scrollOutputToTop(proxy)
+        } else {
+            scrollOutputToBottom(proxy)
+        }
+    }
+
+    private func finishKeepingOutputAtTopIfNeeded() {
+        guard keepOutputAtTopDuringRegeneration else {
+            return
+        }
+        switch appState.session.state {
+        case .translating, .explainingKeywords:
+            return
+        case .idle, .failed, .cancelled, .asking:
+            DispatchQueue.main.async {
+                switch appState.session.state {
+                case .translating, .explainingKeywords:
+                    return
+                case .idle, .failed, .cancelled, .asking:
+                    keepOutputAtTopDuringRegeneration = false
+                }
+            }
+        }
+    }
+
     private var floatingActions: some View {
         VStack(alignment: .trailing, spacing: 5) {
             ForEach(primaryFloatingActions) { action in
@@ -351,7 +398,10 @@ struct TranslationPanelView: View {
                 isLoading: isTranslating,
                 isDisabled: appState.session.sourceText.isEmpty || isExplainingKeywords || isAskingFollowUp
             ) {
+                keepOutputAtTopDuringRegeneration = true
+                outputTopScrollRequest += 1
                 appState.regenerate()
+                finishKeepingOutputAtTopIfNeeded()
             }
         case .newTranslation:
             floatingActionButton(

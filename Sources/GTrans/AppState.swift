@@ -171,6 +171,14 @@ final class AppState: ObservableObject {
         refreshAccessibilityStatus()
     }
 
+    func openAccessibilitySettings() {
+        AppDiagnostics.info("open_accessibility_settings")
+        requestAccessibilityPermission()
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     func refreshAccessibilityStatus() {
         accessibilityEnabled = selectionService.accessibilityTrusted(prompt: false)
     }

@@ -10,6 +10,10 @@ final class LanguageDirectionTests: XCTestCase {
         XCTAssertEqual(LanguageDirection.targetLanguage(for: "你好世界", defaultTarget: .simplifiedChinese), .english)
     }
 
+    func japaneseInputWithChineseDefaultKeepsChineseTarget() {
+        XCTAssertEqual(LanguageDirection.targetLanguage(for: "今日は良い天気です", defaultTarget: .simplifiedChinese), .simplifiedChinese)
+    }
+
     func englishInputWithEnglishDefaultSwitchesToChinese() {
         XCTAssertEqual(LanguageDirection.targetLanguage(for: "Hello world", defaultTarget: .english), .simplifiedChinese)
     }
