@@ -260,7 +260,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(profile.isConfigured ? Color.green : Color.orange)
+                        .fill(profile.isConfigured ? Color.blue : Color.orange)
                         .frame(width: 7, height: 7)
                     Text(profile.displayName)
                         .font(.callout.weight(.semibold))
@@ -296,7 +296,7 @@ struct SettingsView: View {
 
     private func profileSubtitle(_ profile: LLMProfile) -> String {
         let model = profile.model.trimmingCharacters(in: .whitespacesAndNewlines)
-        let status = profile.isConfigured ? "已连接" : "未完成"
+        let status = profile.isConfigured ? "已配置" : "未完成"
         return "\(model.isEmpty ? "未填写模型名称" : model) · \(status)"
     }
 
@@ -336,11 +336,11 @@ struct SettingsView: View {
     private var connectionStatusLine: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(appState.selectedProfile?.isConfigured == true ? Color.green : Color.orange)
+                .fill(appState.selectedProfile?.isConfigured == true ? Color.blue : Color.orange)
                 .frame(width: 7, height: 7)
-            Text(appState.selectedProfile?.isConfigured == true ? "已连接" : "未完成")
+            Text(appState.selectedProfile?.isConfigured == true ? "已配置" : "未完成")
                 .font(.footnote.weight(.medium))
-                .foregroundStyle(appState.selectedProfile?.isConfigured == true ? .green : .orange)
+                .foregroundStyle(appState.selectedProfile?.isConfigured == true ? .blue : .orange)
             Text("当前用于翻译面板快速切换")
                 .font(.footnote)
                 .foregroundStyle(.secondary)

@@ -756,13 +756,22 @@ private struct LLMContextDebugView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Text("Esc 关闭")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 10)
-                .frame(height: 26)
-                .background(Color.secondary.opacity(0.07))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+            Button {
+                dismiss()
+            } label: {
+                Label("Esc 关闭", systemImage: "xmark")
+                    .labelStyle(.titleAndIcon)
+                    .font(.caption.weight(.medium))
+                    .padding(.horizontal, 10)
+                    .frame(height: 26)
+                    .background(Color.secondary.opacity(0.07))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .keyboardShortcut(.cancelAction)
+            .help("关闭 LLM 上下文")
+            .accessibilityLabel("关闭 LLM 上下文")
         }
         .padding(18)
     }

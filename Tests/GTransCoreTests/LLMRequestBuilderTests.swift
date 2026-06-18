@@ -27,6 +27,7 @@ final class LLMRequestBuilderTests: XCTestCase {
         XCTAssertTrue(decoded.stream)
         XCTAssertEqual(decoded.temperature, 0)
         XCTAssertEqual(decoded.maxTokens, LLMClient.maxOutputTokens)
+        XCTAssertNil(decoded.maxCompletionTokens)
         XCTAssertEqual(decoded.reasoning, ReasoningConfig(effort: "none"))
         XCTAssertEqual(decoded.messages, [ChatMessage(role: "user", content: "Hi")])
     }
@@ -76,5 +77,72 @@ final class LLMRequestBuilderTests: XCTestCase {
         XCTAssertEqual(remoteRequest.url?.absoluteString, "https://api.example.com/v1/chat/completions")
         XCTAssertEqual(remoteRequest.value(forHTTPHeaderField: "Authorization"), "Bearer remote-token")
         XCTAssertEqual(remoteBody.model, "remote-model")
+    }
+
+    func usesMaxCompletionTokensForReasoningModels() throws {
+        let client = LLMClient()
+        let profile = LLMProfile(
+            name: "Reasoning model",
+            baseURL: URL(string: "https://api.example.com/v1/")!,
+            apiKey: "token",
+            model: "gpt-5-example"
+        )
+
+        let request = try client.makeRequest(
+            profile: profile,
+            messages: [ChatMessage(role: "user", content: "Hi")],
+            stream: false
+        )
+
+        let body = try XCTUnwrap(request.httpBody)
+        let decoded = try JSONDecoder().decode(ChatCompletionRequest.self, from: body)
+        XCTAssertEqual(request.url?.absoluteString, "https://api.example.com/v1/chat/completions")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer token")
+        XCTAssertEqual(decoded.model, "gpt-5-example")
+        XCTAssertNil(decoded.maxTokens)
+        XCTAssertEqual(decoded.maxCompletionTokens, LLMClient.maxOutputTokens)
+    }
+
+    func connectionTestUsesChatCompletionProbe() async throws {
+        let session = CapturingURLSession()
+        let client = LLMClient(session: session)
+        let profile = LLMProfile(
+            name: "Reasoning model",
+            baseURL: URL(string: "https://api.example.com/v1/")!,
+            apiKey: "token",
+            model: "gpt-5-example"
+        )
+
+        try await client.testConnection(profile: profile)
+
+        let request = try XCTUnwrap(session.lastRequest)
+        let body = try XCTUnwrap(request.httpBody)
+        let decoded = try JSONDecoder().decode(ChatCompletionRequest.self, from: body)
+        XCTAssertEqual(request.url?.absoluteString, "https://api.example.com/v1/chat/completions")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer token")
+        XCTAssertEqual(decoded.model, "gpt-5-example")
+        XCTAssertEqual(decoded.maxCompletionTokens, 32)
+        XCTAssertEqual(decoded.messages, [ChatMessage(role: "user", content: "ping")])
+    }
+}
+
+private final class CapturingURLSession: URLSessionProtocol, @unchecked Sendable {
+    private(set) var lastRequest: URLRequest?
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        lastRequest = request
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+        return (Data(#"{"choices":[{"message":{"content":"ok"}}]}"#.utf8), response)
+    }
+
+    func lines(for request: URLRequest) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.finish()
+        }
     }
 }

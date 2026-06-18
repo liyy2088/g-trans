@@ -14,18 +14,89 @@ public struct ChatCompletionRequest: Codable, Equatable, Sendable {
     public var model: String
     public var messages: [ChatMessage]
     public var temperature: Double
-    public var maxTokens: Int
+    public var tokenLimit: OutputTokenLimit?
     public var reasoning: ReasoningConfig?
     public var stream: Bool
+
+    public var maxTokens: Int? {
+        guard case .maxTokens(let value) = tokenLimit else {
+            return nil
+        }
+        return value
+    }
+
+    public var maxCompletionTokens: Int? {
+        guard case .maxCompletionTokens(let value) = tokenLimit else {
+            return nil
+        }
+        return value
+    }
 
     enum CodingKeys: String, CodingKey {
         case model
         case messages
         case temperature
         case maxTokens = "max_tokens"
+        case maxCompletionTokens = "max_completion_tokens"
         case reasoning
         case stream
     }
+
+    public init(
+        model: String,
+        messages: [ChatMessage],
+        temperature: Double,
+        tokenLimit: OutputTokenLimit?,
+        reasoning: ReasoningConfig?,
+        stream: Bool
+    ) {
+        self.model = model
+        self.messages = messages
+        self.temperature = temperature
+        self.tokenLimit = tokenLimit
+        self.reasoning = reasoning
+        self.stream = stream
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        model = try container.decode(String.self, forKey: .model)
+        messages = try container.decode([ChatMessage].self, forKey: .messages)
+        temperature = try container.decode(Double.self, forKey: .temperature)
+        let maxTokens = try container.decodeIfPresent(Int.self, forKey: .maxTokens)
+        let maxCompletionTokens = try container.decodeIfPresent(Int.self, forKey: .maxCompletionTokens)
+        if let maxCompletionTokens {
+            tokenLimit = .maxCompletionTokens(maxCompletionTokens)
+        } else if let maxTokens {
+            tokenLimit = .maxTokens(maxTokens)
+        } else {
+            tokenLimit = nil
+        }
+        reasoning = try container.decodeIfPresent(ReasoningConfig.self, forKey: .reasoning)
+        stream = try container.decode(Bool.self, forKey: .stream)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(model, forKey: .model)
+        try container.encode(messages, forKey: .messages)
+        try container.encode(temperature, forKey: .temperature)
+        switch tokenLimit {
+        case .maxTokens(let value):
+            try container.encode(value, forKey: .maxTokens)
+        case .maxCompletionTokens(let value):
+            try container.encode(value, forKey: .maxCompletionTokens)
+        case nil:
+            break
+        }
+        try container.encodeIfPresent(reasoning, forKey: .reasoning)
+        try container.encode(stream, forKey: .stream)
+    }
+}
+
+public enum OutputTokenLimit: Equatable, Sendable {
+    case maxTokens(Int)
+    case maxCompletionTokens(Int)
 }
 
 public struct ReasoningConfig: Codable, Equatable, Sendable {
@@ -61,6 +132,20 @@ public struct LLMClient: Sendable {
         messages: [ChatMessage],
         stream: Bool
     ) throws -> URLRequest {
+        try makeRequest(
+            profile: profile,
+            messages: messages,
+            stream: stream,
+            maxOutputTokens: Self.maxOutputTokens
+        )
+    }
+
+    private func makeRequest(
+        profile: LLMProfile,
+        messages: [ChatMessage],
+        stream: Bool,
+        maxOutputTokens: Int
+    ) throws -> URLRequest {
         guard let url = URL(string: "chat/completions", relativeTo: normalizedBaseURL(profile.baseURL))?.absoluteURL else {
             throw LLMClientError.invalidBaseURL
         }
@@ -73,7 +158,7 @@ public struct LLMClient: Sendable {
             model: profile.model,
             messages: messages,
             temperature: 0,
-            maxTokens: Self.maxOutputTokens,
+            tokenLimit: outputTokenLimit(for: profile.model, maxOutputTokens: maxOutputTokens),
             reasoning: reasoningConfig(for: profile.baseURL),
             stream: stream
         )
@@ -151,13 +236,13 @@ public struct LLMClient: Sendable {
     }
 
     public func testConnection(profile: LLMProfile) async throws {
-        guard let url = URL(string: "models", relativeTo: normalizedBaseURL(profile.baseURL))?.absoluteURL else {
-            throw LLMClientError.invalidBaseURL
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
+        var request = try makeRequest(
+            profile: profile,
+            messages: [ChatMessage(role: "user", content: "ping")],
+            stream: false,
+            maxOutputTokens: 32
+        )
         request.timeoutInterval = 20
-        request.setValue("Bearer \(profile.apiKey)", forHTTPHeaderField: "Authorization")
         let (data, response) = try await session.data(for: request)
         try validate(response: response, data: data)
     }
@@ -183,6 +268,21 @@ public struct LLMClient: Sendable {
         return URL(string: string)!
     }
 
+    private func outputTokenLimit(for model: String, maxOutputTokens: Int) -> OutputTokenLimit {
+        if shouldUseMaxCompletionTokens(for: model) {
+            return .maxCompletionTokens(maxOutputTokens)
+        }
+        return .maxTokens(maxOutputTokens)
+    }
+
+    private func shouldUseMaxCompletionTokens(for model: String) -> Bool {
+        let normalized = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized.hasPrefix("gpt-5") ||
+            normalized.hasPrefix("o1") ||
+            normalized.hasPrefix("o3") ||
+            normalized.hasPrefix("o4")
+    }
+
     private func reasoningConfig(for baseURL: URL) -> ReasoningConfig? {
         guard let host = baseURL.host?.lowercased(),
               host == "localhost" || host == "127.0.0.1" else {
@@ -201,7 +301,8 @@ public struct LLMClient: Sendable {
         case 401, 403:
             throw LLMClientError.unauthorized
         case 404:
-            throw LLMClientError.modelNotFound
+            let body = String(decoding: data, as: UTF8.self)
+            throw LLMClientError.badStatus(http.statusCode, body)
         case 429:
             throw LLMClientError.rateLimited
         case 500..<600:
@@ -227,7 +328,10 @@ public enum LLMErrorPresenter {
                 return "请求被限流，请稍后重试。"
             case .serverError:
                 return "服务端暂时不可用，已停止重试。"
-            case .badStatus(let status, _):
+            case .badStatus(let status, let body):
+                if status == 404, body.contains("DeploymentNotFound") {
+                    return "模型或 deployment 不存在，请检查模型名称。"
+                }
                 return "请求失败（HTTP \(status)）。"
             case .emptyResponse:
                 return "模型没有返回内容。"

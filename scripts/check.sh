@@ -84,7 +84,22 @@ struct LogicCheck {
         expect(body.stream == true, "stream flag")
         expect(body.temperature == 0, "temperature")
         expect(body.maxTokens == 2048, "max tokens")
+        expect(body.maxCompletionTokens == nil, "max completion tokens omitted")
         expect(body.reasoning == ReasoningConfig(effort: "none"), "reasoning disabled")
+
+        let reasoningProfile = LLMProfile(
+            baseURL: URL(string: "https://api.example.com/v1/")!,
+            apiKey: "token",
+            model: "gpt-5-example"
+        )
+        let reasoningRequest = try client.makeRequest(
+            profile: reasoningProfile,
+            messages: [ChatMessage(role: "user", content: "Hi")],
+            stream: false
+        )
+        let reasoningBody = try JSONDecoder().decode(ChatCompletionRequest.self, from: reasoningRequest.httpBody!)
+        expect(reasoningBody.maxTokens == nil, "reasoning max tokens omitted")
+        expect(reasoningBody.maxCompletionTokens == 2048, "reasoning max completion tokens")
 
         var parser = StreamingChatParser()
         let firstToken = try parser.parse(line: #"data: {"choices":[{"delta":{"content":"你"}}]}"#)
