@@ -35,6 +35,8 @@ public struct LLMProfile: Codable, Equatable, Identifiable, Sendable {
 public struct AppConfiguration: Equatable, Sendable {
     public var targetLanguage: TargetLanguage
     public var streamingEnabled: Bool
+    public var sourceReadingEnabled: Bool
+    public var translationReadingEnabled: Bool
     public var launchAtLogin: Bool
     public var selectedProfileID: String?
     public var profiles: [LLMProfile]
@@ -45,12 +47,16 @@ public struct AppConfiguration: Equatable, Sendable {
         apiKey: String = "",
         targetLanguage: TargetLanguage = .simplifiedChinese,
         streamingEnabled: Bool = true,
+        sourceReadingEnabled: Bool = true,
+        translationReadingEnabled: Bool = true,
         launchAtLogin: Bool = false,
         selectedProfileID: String? = nil,
         profiles: [LLMProfile]? = nil
     ) {
         self.targetLanguage = targetLanguage
         self.streamingEnabled = streamingEnabled
+        self.sourceReadingEnabled = sourceReadingEnabled
+        self.translationReadingEnabled = translationReadingEnabled
         self.launchAtLogin = launchAtLogin
         if let profiles {
             self.profiles = profiles.isEmpty ? [LLMProfile()] : profiles
@@ -117,6 +123,18 @@ public struct AppConfiguration: Equatable, Sendable {
         }
         selectedProfileID = profiles.first?.id
     }
+}
+
+public struct TranslationReadingOptions: Equatable, Sendable {
+    public var sourceEnabled: Bool
+    public var translationEnabled: Bool
+
+    public init(sourceEnabled: Bool = true, translationEnabled: Bool = true) {
+        self.sourceEnabled = sourceEnabled
+        self.translationEnabled = translationEnabled
+    }
+
+    public static let allEnabled = TranslationReadingOptions()
 }
 
 public enum TargetLanguage: String, CaseIterable, Codable, Identifiable, Sendable {

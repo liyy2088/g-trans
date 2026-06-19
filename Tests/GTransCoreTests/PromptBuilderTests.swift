@@ -3,6 +3,55 @@ import XCTest
 @testable import GTransCore
 
 final class PromptBuilderTests: XCTestCase {
+    func testTranslationMessagesAskForReadingGuide() {
+        let chineseMessages = PromptBuilder.translationMessages(sourceText: "Good morning", targetLanguage: .simplifiedChinese)
+        XCTAssertTrue(chineseMessages[0].content.contains("只输出原文读音、译文和译文读音"))
+        XCTAssertTrue(chineseMessages[1].content.contains("读音规则：中文用拼音；英文用 IPA 英标；日文用 ふりがな 和 ローマ字；其他语言用常用拉丁转写或 IPA。"))
+        XCTAssertTrue(chineseMessages[1].content.contains("原文读音：<按识别出的源语言标注读音>"))
+        XCTAssertTrue(chineseMessages[1].content.contains("译文：<简体中文译文>"))
+        XCTAssertTrue(chineseMessages[1].content.contains("译文读音：<拼音>"))
+        XCTAssertTrue(chineseMessages[1].content.contains("Good morning"))
+
+        let englishMessages = PromptBuilder.translationMessages(sourceText: "你好", targetLanguage: .english)
+        XCTAssertTrue(englishMessages[1].content.contains("译文读音：<IPA 英标>"))
+
+        let japaneseMessages = PromptBuilder.translationMessages(sourceText: "Hello", targetLanguage: .japanese)
+        XCTAssertTrue(japaneseMessages[1].content.contains("译文读音：<ふりがな；ローマ字>"))
+    }
+
+    func testTranslationMessagesOmitDisabledReadingGuides() {
+        let sourceOnlyMessages = PromptBuilder.translationMessages(
+            sourceText: "Good morning",
+            targetLanguage: .simplifiedChinese,
+            readingOptions: TranslationReadingOptions(sourceEnabled: true, translationEnabled: false)
+        )
+        XCTAssertTrue(sourceOnlyMessages[0].content.contains("只输出原文读音和译文"))
+        XCTAssertTrue(sourceOnlyMessages[1].content.contains("原文读音：<按识别出的源语言标注读音>"))
+        XCTAssertTrue(sourceOnlyMessages[1].content.contains("译文：<简体中文译文>"))
+        XCTAssertFalse(sourceOnlyMessages[1].content.contains("译文读音："))
+
+        let translationOnlyMessages = PromptBuilder.translationMessages(
+            sourceText: "你好",
+            targetLanguage: .english,
+            readingOptions: TranslationReadingOptions(sourceEnabled: false, translationEnabled: true)
+        )
+        XCTAssertTrue(translationOnlyMessages[0].content.contains("只输出译文和译文读音"))
+        XCTAssertFalse(translationOnlyMessages[1].content.contains("原文读音："))
+        XCTAssertTrue(translationOnlyMessages[1].content.contains("译文：<英文译文>"))
+        XCTAssertTrue(translationOnlyMessages[1].content.contains("译文读音：<IPA 英标>"))
+
+        let translationOnlyNoReadingMessages = PromptBuilder.translationMessages(
+            sourceText: "Hello",
+            targetLanguage: .japanese,
+            readingOptions: TranslationReadingOptions(sourceEnabled: false, translationEnabled: false)
+        )
+        XCTAssertTrue(translationOnlyNoReadingMessages[0].content.contains("只输出译文，不解释，不加引号。"))
+        XCTAssertFalse(translationOnlyNoReadingMessages[1].content.contains("读音规则："))
+        XCTAssertFalse(translationOnlyNoReadingMessages[1].content.contains("原文读音："))
+        XCTAssertTrue(translationOnlyNoReadingMessages[1].content.contains("译文：<日文译文>"))
+        XCTAssertFalse(translationOnlyNoReadingMessages[1].content.contains("译文读音："))
+    }
+
     func testFollowUpMessagesDefaultToSourceText() {
         let messages = PromptBuilder.followUpMessages(
             sourceText: "threshold",
@@ -52,6 +101,7 @@ final class PromptBuilderTests: XCTestCase {
 
         XCTAssertTrue(messages[0].content.contains("只针对原文解释关键词汇"))
         XCTAssertTrue(messages[0].content.contains("参考译文只作为理解辅助"))
+        XCTAssertTrue(messages[0].content.contains("只把“译文：”字段作为参考"))
         XCTAssertTrue(messages[0].content.contains("使用简体中文"))
         XCTAssertTrue(messages[1].content.contains("尽量找出所有值得解释的关键词或短语"))
         XCTAssertTrue(messages[1].content.contains("由你根据原文复杂度决定解释数量"))

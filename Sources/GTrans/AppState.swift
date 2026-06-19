@@ -113,6 +113,8 @@ final class AppState: ObservableObject {
                 "api_key_length": configuration.apiKey.count,
                 "profile_count": configuration.profiles.count,
                 "streaming": configuration.streamingEnabled,
+                "source_reading": configuration.sourceReadingEnabled,
+                "translation_reading": configuration.translationReadingEnabled,
                 "target": configuration.targetLanguage.rawValue
             ]
         )
@@ -337,7 +339,9 @@ final class AppState: ObservableObject {
                 "profile_name": selectedProfile?.displayName ?? "",
                 "base_url": configuration.baseURL.absoluteString,
                 "model": configuration.model,
-                "streaming": configuration.streamingEnabled
+                "streaming": configuration.streamingEnabled,
+                "source_reading": configuration.sourceReadingEnabled,
+                "translation_reading": configuration.translationReadingEnabled
             ]
         )
         session.start(sourceText: trimmed, targetLanguage: target)
@@ -346,7 +350,12 @@ final class AppState: ObservableObject {
             openSettings()
             return
         }
-        session.runTranslation(client: client, profile: profile, streamingEnabled: configuration.streamingEnabled)
+        session.runTranslation(
+            client: client,
+            profile: profile,
+            streamingEnabled: configuration.streamingEnabled,
+            readingOptions: translationReadingOptions
+        )
     }
 
     private func launchTranslationText() -> String? {
@@ -366,7 +375,12 @@ final class AppState: ObservableObject {
             openSettings()
             return
         }
-        session.runTranslation(client: client, profile: profile, streamingEnabled: configuration.streamingEnabled)
+        session.runTranslation(
+            client: client,
+            profile: profile,
+            streamingEnabled: configuration.streamingEnabled,
+            readingOptions: translationReadingOptions
+        )
     }
 
     func startNewTranslationDraft() {
@@ -384,6 +398,13 @@ final class AppState: ObservableObject {
             return
         }
         session.ask(question: question, displayQuestion: displayQuestion, client: client, profile: profile, streamingEnabled: configuration.streamingEnabled)
+    }
+
+    private var translationReadingOptions: TranslationReadingOptions {
+        TranslationReadingOptions(
+            sourceEnabled: configuration.sourceReadingEnabled,
+            translationEnabled: configuration.translationReadingEnabled
+        )
     }
 
     func closePanel() {

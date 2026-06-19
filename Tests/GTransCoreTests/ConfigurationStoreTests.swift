@@ -25,6 +25,8 @@ final class ConfigurationStoreTests: XCTestCase {
         let config = AppConfiguration(
             targetLanguage: .english,
             streamingEnabled: false,
+            sourceReadingEnabled: false,
+            translationReadingEnabled: true,
             launchAtLogin: true,
             selectedProfileID: secondProfile.id,
             profiles: [firstProfile, secondProfile]
@@ -52,6 +54,8 @@ final class ConfigurationStoreTests: XCTestCase {
         XCTAssertEqual(loaded.selectedProfile?.model, "gemma4:12b-mlx")
         XCTAssertEqual(loaded.selectedProfile?.apiKey, "ollama")
         XCTAssertTrue(loaded.isAPIConfigured)
+        XCTAssertTrue(loaded.sourceReadingEnabled)
+        XCTAssertTrue(loaded.translationReadingEnabled)
     }
 
     func selectedProfileFallsBackToFirstProfile() {

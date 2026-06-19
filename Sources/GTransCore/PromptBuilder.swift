@@ -16,18 +16,71 @@ public enum PromptBuilder {
         }
     }
 
-    public static func translationMessages(sourceText: String, targetLanguage: TargetLanguage) -> [ChatMessage] {
+    public static func translationMessages(
+        sourceText: String,
+        targetLanguage: TargetLanguage,
+        readingOptions: TranslationReadingOptions = .allEnabled
+    ) -> [ChatMessage] {
         [
-            ChatMessage(role: "system", content: "你是一个专业翻译引擎。只输出译文，不解释，不加引号。"),
-            ChatMessage(role: "user", content: "请自动识别源语言，并翻译为\(targetLanguage.displayName)：\n\n\(sourceText)")
+            ChatMessage(role: "system", content: "你是一个专业翻译引擎。\(translationSystemInstruction(readingOptions: readingOptions))"),
+            ChatMessage(role: "user", content: """
+            请自动识别源语言，并翻译为\(targetLanguage.displayName)。
+            \(readingRule(readingOptions: readingOptions))输出格式：
+            \(translationOutputFormat(targetLanguage: targetLanguage, readingOptions: readingOptions))
+
+            \(sourceText)
+            """)
         ]
+    }
+
+    private static func translationSystemInstruction(readingOptions: TranslationReadingOptions) -> String {
+        switch (readingOptions.sourceEnabled, readingOptions.translationEnabled) {
+        case (true, true):
+            "只输出原文读音、译文和译文读音，不解释，不加引号。"
+        case (true, false):
+            "只输出原文读音和译文，不解释，不加引号。"
+        case (false, true):
+            "只输出译文和译文读音，不解释，不加引号。"
+        case (false, false):
+            "只输出译文，不解释，不加引号。"
+        }
+    }
+
+    private static func readingRule(readingOptions: TranslationReadingOptions) -> String {
+        guard readingOptions.sourceEnabled || readingOptions.translationEnabled else {
+            return ""
+        }
+        return "读音规则：中文用拼音；英文用 IPA 英标；日文用 ふりがな 和 ローマ字；其他语言用常用拉丁转写或 IPA。\n"
+    }
+
+    private static func translationOutputFormat(targetLanguage: TargetLanguage, readingOptions: TranslationReadingOptions) -> String {
+        var lines: [String] = []
+        if readingOptions.sourceEnabled {
+            lines.append("原文读音：<按识别出的源语言标注读音>")
+        }
+        lines.append("译文：<\(targetLanguage.displayName)译文>")
+        if readingOptions.translationEnabled {
+            lines.append("译文读音：<\(readingGuide(for: targetLanguage))>")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func readingGuide(for targetLanguage: TargetLanguage) -> String {
+        switch targetLanguage {
+        case .simplifiedChinese, .traditionalChinese:
+            "拼音"
+        case .english:
+            "IPA 英标"
+        case .japanese:
+            "ふりがな；ローマ字"
+        }
     }
 
     public static func keywordExplanationMessages(sourceText: String, translation: String, targetLanguage: TargetLanguage) -> [ChatMessage] {
         [
             ChatMessage(
                 role: "system",
-                content: "你是一个翻译词汇助手。只针对原文解释关键词汇；参考译文只作为理解辅助。回答要简洁，使用\(targetLanguage.displayName)。"
+                content: "你是一个翻译词汇助手。只针对原文解释关键词汇；参考译文只作为理解辅助。回答要简洁，使用\(targetLanguage.displayName)。如果参考译文包含原文读音或译文读音，只把“译文：”字段作为参考。"
             ),
             ChatMessage(
                 role: "user",

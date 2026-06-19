@@ -18,6 +18,8 @@ public final class UserDefaultsConfigurationStore: ConfigurationStoring, @unchec
         static let apiKey = "apiKey"
         static let targetLanguage = "targetLanguage"
         static let streamingEnabled = "streamingEnabled"
+        static let sourceReadingEnabled = "sourceReadingEnabled"
+        static let translationReadingEnabled = "translationReadingEnabled"
         static let launchAtLogin = "launchAtLogin"
         static let profiles = "llmProfiles"
         static let selectedProfileID = "selectedProfileID"
@@ -32,12 +34,16 @@ public final class UserDefaultsConfigurationStore: ConfigurationStoring, @unchec
     public func load() -> AppConfiguration {
         let targetLanguage = TargetLanguage(rawValue: defaults.string(forKey: Key.targetLanguage) ?? "") ?? .simplifiedChinese
         let streamingEnabled = defaults.object(forKey: Key.streamingEnabled) as? Bool ?? true
+        let sourceReadingEnabled = defaults.object(forKey: Key.sourceReadingEnabled) as? Bool ?? true
+        let translationReadingEnabled = defaults.object(forKey: Key.translationReadingEnabled) as? Bool ?? true
         let launchAtLogin = defaults.bool(forKey: Key.launchAtLogin)
         let profiles = loadProfiles()
         let selectedProfileID = defaults.string(forKey: Key.selectedProfileID)
         return AppConfiguration(
             targetLanguage: targetLanguage,
             streamingEnabled: streamingEnabled,
+            sourceReadingEnabled: sourceReadingEnabled,
+            translationReadingEnabled: translationReadingEnabled,
             launchAtLogin: launchAtLogin,
             selectedProfileID: selectedProfileID,
             profiles: profiles
@@ -51,6 +57,8 @@ public final class UserDefaultsConfigurationStore: ConfigurationStoring, @unchec
         defaults.set(configuration.selectedProfile?.id, forKey: Key.selectedProfileID)
         defaults.set(configuration.targetLanguage.rawValue, forKey: Key.targetLanguage)
         defaults.set(configuration.streamingEnabled, forKey: Key.streamingEnabled)
+        defaults.set(configuration.sourceReadingEnabled, forKey: Key.sourceReadingEnabled)
+        defaults.set(configuration.translationReadingEnabled, forKey: Key.translationReadingEnabled)
         defaults.set(configuration.launchAtLogin, forKey: Key.launchAtLogin)
     }
 

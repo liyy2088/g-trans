@@ -64,7 +64,12 @@ public final class TranslationSession: ObservableObject {
         isClosed = false
     }
 
-    public func runTranslation(client: LLMClient, profile: LLMProfile, streamingEnabled: Bool) {
+    public func runTranslation(
+        client: LLMClient,
+        profile: LLMProfile,
+        streamingEnabled: Bool,
+        readingOptions: TranslationReadingOptions = .allEnabled
+    ) {
         cancel()
         translation = ""
         keywordExplanation = ""
@@ -79,7 +84,11 @@ public final class TranslationSession: ObservableObject {
                 "model": profile.model
             ]
         )
-        let messages = PromptBuilder.translationMessages(sourceText: sourceText, targetLanguage: targetLanguage)
+        let messages = PromptBuilder.translationMessages(
+            sourceText: sourceText,
+            targetLanguage: targetLanguage,
+            readingOptions: readingOptions
+        )
         lastLLMContextSnapshot = makeContextSnapshot(
             requestKind: .translation,
             profile: profile,

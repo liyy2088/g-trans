@@ -65,6 +65,33 @@ struct LogicCheck {
         expect(LanguageDirection.targetLanguage(for: "今日は良い天気です", defaultTarget: .simplifiedChinese) == .simplifiedChinese, "Japanese should keep Simplified Chinese target by default")
         expect(LanguageDirection.targetLanguage(for: "Hello world", defaultTarget: .english) == .simplifiedChinese, "English default should switch to Simplified Chinese for English source")
 
+        let suiteName = "GTransDirectCheck.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = UserDefaultsConfigurationStore(defaults: defaults)
+        let storedProfile = LLMProfile(id: "local", name: "本地", apiKey: "ollama", model: "local-model")
+        let storedConfiguration = AppConfiguration(
+            targetLanguage: .english,
+            streamingEnabled: false,
+            sourceReadingEnabled: false,
+            translationReadingEnabled: true,
+            launchAtLogin: true,
+            selectedProfileID: storedProfile.id,
+            profiles: [storedProfile]
+        )
+        store.save(storedConfiguration)
+        expect(store.load() == storedConfiguration, "reading settings round trip")
+
+        let legacySuiteName = "GTransDirectCheckLegacy.\(UUID().uuidString)"
+        let legacyDefaults = UserDefaults(suiteName: legacySuiteName)!
+        defer { legacyDefaults.removePersistentDomain(forName: legacySuiteName) }
+        legacyDefaults.set("http://localhost:11434/v1/", forKey: "baseURL")
+        legacyDefaults.set("gemma4:12b-mlx", forKey: "model")
+        legacyDefaults.set("ollama", forKey: "apiKey")
+        let legacyConfiguration = UserDefaultsConfigurationStore(defaults: legacyDefaults).load()
+        expect(legacyConfiguration.sourceReadingEnabled, "legacy source reading defaults enabled")
+        expect(legacyConfiguration.translationReadingEnabled, "legacy translation reading defaults enabled")
+
         let client = LLMClient()
         let profile = LLMProfile(
             baseURL: URL(string: "http://localhost:11434/v1/")!,
@@ -113,6 +140,40 @@ struct LogicCheck {
         expect(done.isEmpty, "done produces no token")
         expect(parser.isDone, "done state")
 
+        let translationMessages = PromptBuilder.translationMessages(sourceText: "Good morning", targetLanguage: .simplifiedChinese)
+        expect(translationMessages[0].content.contains("只输出原文读音、译文和译文读音"), "translation asks for source reading, text, and translation reading only")
+        expect(translationMessages[1].content.contains("读音规则：中文用拼音；英文用 IPA 英标；日文用 ふりがな 和 ローマ字；其他语言用常用拉丁转写或 IPA。"), "reading guide rules")
+        expect(translationMessages[1].content.contains("原文读音：<按识别出的源语言标注读音>"), "source reading output format")
+        expect(translationMessages[1].content.contains("译文：<简体中文译文>"), "translation output format")
+        expect(translationMessages[1].content.contains("译文读音：<拼音>"), "Chinese reading guide")
+        expect(translationMessages[1].content.contains("Good morning"), "translation source included")
+        expect(PromptBuilder.translationMessages(sourceText: "你好", targetLanguage: .english)[1].content.contains("译文读音：<IPA 英标>"), "English reading guide")
+        expect(PromptBuilder.translationMessages(sourceText: "Hello", targetLanguage: .japanese)[1].content.contains("译文读音：<ふりがな；ローマ字>"), "Japanese reading guide")
+        let sourceOnlyMessages = PromptBuilder.translationMessages(
+            sourceText: "Good morning",
+            targetLanguage: .simplifiedChinese,
+            readingOptions: TranslationReadingOptions(sourceEnabled: true, translationEnabled: false)
+        )
+        expect(sourceOnlyMessages[1].content.contains("原文读音：<按识别出的源语言标注读音>"), "source-only reading includes source reading")
+        expect(sourceOnlyMessages[1].content.contains("译文：<简体中文译文>"), "source-only reading includes translation")
+        expect(sourceOnlyMessages[1].content.contains("译文读音：") == false, "source-only reading omits translation reading")
+        let translationOnlyMessages = PromptBuilder.translationMessages(
+            sourceText: "你好",
+            targetLanguage: .english,
+            readingOptions: TranslationReadingOptions(sourceEnabled: false, translationEnabled: true)
+        )
+        expect(translationOnlyMessages[1].content.contains("原文读音：") == false, "translation-only reading omits source reading")
+        expect(translationOnlyMessages[1].content.contains("译文读音：<IPA 英标>"), "translation-only reading includes target reading")
+        let noReadingMessages = PromptBuilder.translationMessages(
+            sourceText: "Hello",
+            targetLanguage: .japanese,
+            readingOptions: TranslationReadingOptions(sourceEnabled: false, translationEnabled: false)
+        )
+        expect(noReadingMessages[1].content.contains("读音规则：") == false, "no reading omits reading rules")
+        expect(noReadingMessages[1].content.contains("原文读音：") == false, "no reading omits source reading")
+        expect(noReadingMessages[1].content.contains("译文：<日文译文>"), "no reading includes translation")
+        expect(noReadingMessages[1].content.contains("译文读音：") == false, "no reading omits translation reading")
+
         let followUpMessages = PromptBuilder.followUpMessages(
             sourceText: "threshold",
             translation: "阈值",
@@ -138,6 +199,7 @@ struct LogicCheck {
         )
         expect(keywordMessages[0].content.contains("只针对原文解释关键词汇"), "keyword explanation targets source")
         expect(keywordMessages[0].content.contains("参考译文只作为理解辅助"), "keyword translation is reference")
+        expect(keywordMessages[0].content.contains("只把“译文：”字段作为参考"), "keyword ignores reading fields")
         expect(keywordMessages[1].content.contains("尽量找出所有值得解释的关键词或短语"), "keyword coverage guidance")
         expect(keywordMessages[1].content.contains("由你根据原文复杂度决定解释数量"), "keyword count left to model")
         expect(keywordMessages[1].content.contains("原词/短语 — 含义 — 语境或用法 — 常见译法"), "keyword output format")
