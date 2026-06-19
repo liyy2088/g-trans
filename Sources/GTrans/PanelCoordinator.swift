@@ -14,6 +14,14 @@ final class PanelCoordinator {
         panel?.isVisible == true
     }
 
+    func focusExistingPanel() -> Bool {
+        guard isVisible else {
+            return false
+        }
+        bringToFront()
+        return true
+    }
+
     func show(appState: AppState, mode: PanelMode) {
         NSApp.setActivationPolicy(.regular)
         if panel == nil {

@@ -68,7 +68,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     @objc private func openTranslation() {
         AppDiagnostics.info("status_menu_open_translation")
-        appState?.openManualInput()
+        appState?.openCurrentTranslationWindow()
     }
 
     @objc private func openSettings() {

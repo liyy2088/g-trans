@@ -25,6 +25,7 @@ final class AppState: ObservableObject {
     private var hotkeyService: HotkeyService?
     private let statusBarController = StatusBarController()
     private var didPromptAccessibility = false
+    private var lastExternalApplication: NSRunningApplication?
     private var cancellables: Set<AnyCancellable> = []
 
     init(
@@ -57,6 +58,8 @@ final class AppState: ObservableObject {
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
+        rememberExternalApplication(NSWorkspace.shared.frontmostApplication)
+        observeActiveApplications()
     }
 
     var isAPIConfigured: Bool {
@@ -195,8 +198,9 @@ final class AppState: ObservableObject {
 
     func handleTranslateShortcut() async {
         AppDiagnostics.info("translate_shortcut")
+        let selectionSourceApplication = lastExternalApplication
         if panelCoordinator.isVisible {
-            AppDiagnostics.info("translate_shortcut_replace_existing_panel")
+            AppDiagnostics.info("translate_shortcut_existing_panel_visible")
         }
         guard isAPIConfigured else {
             AppDiagnostics.info("translate_shortcut_open_settings", ["reason": "api_not_configured"])
@@ -204,28 +208,34 @@ final class AppState: ObservableObject {
             return
         }
         do {
-            AppDiagnostics.info("selected_text_read_start")
-            let text = try await readSelectedTextWithTimeout()
+            AppDiagnostics.info(
+                "selected_text_read_start",
+                [
+                    "source_bundle": selectionSourceApplication?.bundleIdentifier ?? "",
+                    "source_name": selectionSourceApplication?.localizedName ?? ""
+                ]
+            )
+            let text = try await readSelectedTextWithTimeout(in: selectionSourceApplication) {
+                if self.panelCoordinator.focusExistingPanel() {
+                    AppDiagnostics.info("translate_shortcut_focus_existing_panel_while_reading_selection")
+                }
+            }
             panelMessage = nil
             AppDiagnostics.info("selected_text_read", ["length": text.count])
             startTranslation(text: text)
         } catch AppStateError.selectionReadTimedOut {
-            panelMessage = "未读取到选中文本，请手动输入。"
             AppDiagnostics.error("selected_text_failed", ["reason": "timeout"])
-            panelCoordinator.show(appState: self, mode: .manualInput)
+            focusExistingPanelOrShowManualInput(message: "未读取到选中文本，请手动输入。")
         } catch SelectionError.accessibilityPermissionMissing {
-            panelMessage = "需要开启辅助功能权限后才能读取选中文本。"
             AppDiagnostics.error("selected_text_failed", ["reason": "accessibility_permission_missing"])
             promptAccessibilityIfNeeded()
-            panelCoordinator.show(appState: self, mode: .manualInput)
+            focusExistingPanelOrShowManualInput(message: "需要开启辅助功能权限后才能读取选中文本。")
         } catch SelectionError.clipboardRestoreFailed {
-            panelMessage = "未能恢复原剪贴板内容，请检查剪贴板。"
             AppDiagnostics.error("selected_text_failed", ["reason": "clipboard_restore_failed"])
-            panelCoordinator.show(appState: self, mode: .manualInput)
+            focusExistingPanelOrShowManualInput(message: "未能恢复原剪贴板内容，请检查剪贴板。")
         } catch {
-            panelMessage = "未读取到选中文本，请手动输入。"
             AppDiagnostics.error("selected_text_failed", ["error": error.localizedDescription])
-            panelCoordinator.show(appState: self, mode: .manualInput)
+            focusExistingPanelOrShowManualInput(message: "未读取到选中文本，请手动输入。")
         }
     }
 
@@ -236,10 +246,34 @@ final class AppState: ObservableObject {
         requestAccessibilityPermission()
     }
 
-    private func readSelectedTextWithTimeout() async throws -> String {
+    private func observeActiveApplications() {
+        NSWorkspace.shared.notificationCenter
+            .publisher(for: NSWorkspace.didActivateApplicationNotification)
+            .compactMap { $0.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication }
+            .sink { [weak self] app in
+                self?.rememberExternalApplication(app)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func rememberExternalApplication(_ application: NSRunningApplication?) {
+        guard let application,
+              application.bundleIdentifier != Bundle.main.bundleIdentifier else {
+            return
+        }
+        lastExternalApplication = application
+    }
+
+    private func readSelectedTextWithTimeout(
+        in application: NSRunningApplication?,
+        afterClipboardFallbackPosted: @escaping @MainActor () -> Void = {}
+    ) async throws -> String {
         try await withThrowingTaskGroup(of: String.self) { group in
             group.addTask { @MainActor [selectionService] in
-                try await selectionService.readSelectedText()
+                try await selectionService.readSelectedText(
+                    in: application,
+                    afterClipboardFallbackPosted: afterClipboardFallbackPosted
+                )
             }
             group.addTask {
                 try await Task.sleep(nanoseconds: 1_500_000_000)
@@ -261,6 +295,26 @@ final class AppState: ObservableObject {
         } else {
             openSettings()
         }
+    }
+
+    func openCurrentTranslationWindow() {
+        AppDiagnostics.info("open_current_translation_window")
+        if panelCoordinator.focusExistingPanel() {
+            AppDiagnostics.info("open_current_translation_window_focus_existing")
+            return
+        }
+        AppDiagnostics.info("open_current_translation_window_open_manual_input")
+        openManualInput()
+    }
+
+    private func focusExistingPanelOrShowManualInput(message: String) {
+        if panelCoordinator.focusExistingPanel() {
+            AppDiagnostics.info("translate_shortcut_focus_existing_panel")
+            return
+        }
+        panelMessage = message
+        AppDiagnostics.info("translate_shortcut_open_manual_input", ["reason": "selection_unavailable"])
+        panelCoordinator.show(appState: self, mode: .manualInput)
     }
 
     func startTranslation(text: String) {
