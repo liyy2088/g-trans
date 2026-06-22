@@ -203,12 +203,41 @@ struct TranslationPanelView: View {
     }
 
     private var sourcePreview: some View {
-        SelectableSourceText(text: appState.session.sourceText, measuredHeight: $sourceTextHeight)
-            .frame(height: sourceVisibleHeight)
+        ScrollView {
+            sourceText
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(key: SourceTextHeightPreferenceKey.self, value: proxy.size.height)
+                    }
+                )
+        }
+        .frame(height: sourceVisibleHeight, alignment: .topLeading)
+        .onPreferenceChange(SourceTextHeightPreferenceKey.self) { height in
+            updateSourceTextHeight(height)
+        }
+    }
+
+    private var sourceText: some View {
+        Text(appState.session.sourceText)
+            .font(.callout)
+            .textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var sourceVisibleHeight: CGFloat {
         min(max(sourceTextHeight, sourceTextMinHeight), sourceTextMaxHeight)
+    }
+
+    private func updateSourceTextHeight(_ height: CGFloat) {
+        guard height > 0 else {
+            return
+        }
+        let clampedHeight = min(max(ceil(height), sourceTextMinHeight), sourceTextMaxHeight)
+        guard abs(sourceTextHeight - clampedHeight) > 0.5 else {
+            return
+        }
+        sourceTextHeight = clampedHeight
     }
 
     private var translationArea: some View {
@@ -973,105 +1002,11 @@ private extension TranslationState {
     }
 }
 
-private struct SelectableSourceText: NSViewRepresentable {
-    let text: String
-    @Binding var measuredHeight: CGFloat
+private struct SourceTextHeightPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(measuredHeight: $measuredHeight)
-    }
-
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = MeasuringScrollView()
-        scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.borderType = .noBorder
-        scrollView.onLayout = {
-            context.coordinator.updateMeasuredHeight(in: scrollView)
-        }
-
-        let textView = NSTextView()
-        textView.drawsBackground = false
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.isRichText = false
-        textView.importsGraphics = false
-        textView.font = NSFont.preferredFont(forTextStyle: .callout)
-        textView.textColor = .labelColor
-        textView.textContainerInset = .zero
-        textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.containerSize = NSSize(width: scrollView.contentSize.width, height: .greatestFiniteMagnitude)
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
-        textView.string = text
-
-        applyLayout(to: textView, in: scrollView)
-        scrollView.documentView = textView
-        context.coordinator.updateMeasuredHeight(in: scrollView)
-        return scrollView
-    }
-
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NSTextView else {
-            return
-        }
-        if textView.string != text {
-            textView.string = text
-        }
-        applyLayout(to: textView, in: scrollView)
-        context.coordinator.updateMeasuredHeight(in: scrollView)
-    }
-
-    private func applyLayout(to textView: NSTextView, in scrollView: NSScrollView) {
-        textView.textContainer?.maximumNumberOfLines = 0
-        textView.textContainer?.lineBreakMode = .byWordWrapping
-        textView.textContainer?.containerSize = NSSize(
-            width: scrollView.contentSize.width,
-            height: .greatestFiniteMagnitude
-        )
-    }
-
-    final class Coordinator {
-        @Binding private var measuredHeight: CGFloat
-
-        init(measuredHeight: Binding<CGFloat>) {
-            _measuredHeight = measuredHeight
-        }
-
-        func updateMeasuredHeight(in scrollView: NSScrollView) {
-            guard let textView = scrollView.documentView as? NSTextView,
-                  let layoutManager = textView.layoutManager,
-                  let textContainer = textView.textContainer
-            else {
-                return
-            }
-
-            textContainer.containerSize = NSSize(
-                width: scrollView.contentSize.width,
-                height: .greatestFiniteMagnitude
-            )
-            layoutManager.ensureLayout(for: textContainer)
-            let contentHeight = ceil(layoutManager.usedRect(for: textContainer).height + textView.textContainerInset.height * 2)
-
-            DispatchQueue.main.async {
-                if abs(self.measuredHeight - contentHeight) > 0.5 {
-                    self.measuredHeight = contentHeight
-                }
-            }
-        }
-    }
-
-    final class MeasuringScrollView: NSScrollView {
-        var onLayout: (() -> Void)?
-
-        override func layout() {
-            super.layout()
-            onLayout?()
-        }
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 

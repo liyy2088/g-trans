@@ -26,4 +26,13 @@ final class SettingsPanelCoordinator: NSObject {
     }
 }
 
-extension SettingsPanelCoordinator: NSWindowDelegate {}
+extension SettingsPanelCoordinator: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        guard notification.object as? NSPanel === panel else {
+            return
+        }
+        panel?.contentView = nil
+        panel?.delegate = nil
+        panel = nil
+    }
+}

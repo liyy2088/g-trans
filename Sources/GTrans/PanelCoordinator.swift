@@ -40,6 +40,9 @@ final class PanelCoordinator {
             panel.onEscape = { [weak appState] in
                 appState?.requestClosePanel()
             }
+            panel.onClose = { [weak appState] in
+                appState?.requestClosePanel()
+            }
             self.panel = panel
         }
 
@@ -55,17 +58,27 @@ final class PanelCoordinator {
     }
 
     func close() {
-        panel?.orderOut(nil)
+        guard let panel else {
+            return
+        }
+        panel.contentView = nil
+        panel.orderOut(nil)
+        self.panel = nil
     }
 }
 
 private final class EscapeClosingPanel: NSPanel {
     var onEscape: (() -> Void)?
+    var onClose: (() -> Void)?
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 
     override func cancelOperation(_ sender: Any?) {
         onEscape?()
+    }
+
+    override func close() {
+        onClose?()
     }
 }
