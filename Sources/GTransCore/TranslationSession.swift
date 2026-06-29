@@ -105,6 +105,9 @@ public final class TranslationSession: ObservableObject {
             guard didTranslate, !Task.isCancelled, !self.isClosed else {
                 return
             }
+            guard TranslationContentPolicy.shouldRequestKeywordExplanation(for: self.sourceText) else {
+                return
+            }
             await self.runKeywordExplanation(client: client, profile: profile, streamingEnabled: streamingEnabled)
         }
     }

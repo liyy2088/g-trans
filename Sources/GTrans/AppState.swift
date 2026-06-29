@@ -113,8 +113,6 @@ final class AppState: ObservableObject {
                 "api_key_length": configuration.apiKey.count,
                 "profile_count": configuration.profiles.count,
                 "streaming": configuration.streamingEnabled,
-                "source_reading": configuration.sourceReadingEnabled,
-                "translation_reading": configuration.translationReadingEnabled,
                 "target": configuration.targetLanguage.rawValue
             ]
         )
@@ -340,8 +338,8 @@ final class AppState: ObservableObject {
                 "base_url": configuration.baseURL.absoluteString,
                 "model": configuration.model,
                 "streaming": configuration.streamingEnabled,
-                "source_reading": configuration.sourceReadingEnabled,
-                "translation_reading": configuration.translationReadingEnabled
+                "reading_auto_enabled": TranslationContentPolicy.readingOptions(for: trimmed) == .allEnabled,
+                "keyword_auto_enabled": TranslationContentPolicy.shouldRequestKeywordExplanation(for: trimmed)
             ]
         )
         session.start(sourceText: trimmed, targetLanguage: target)
@@ -401,10 +399,7 @@ final class AppState: ObservableObject {
     }
 
     private var translationReadingOptions: TranslationReadingOptions {
-        TranslationReadingOptions(
-            sourceEnabled: configuration.sourceReadingEnabled,
-            translationEnabled: configuration.translationReadingEnabled
-        )
+        TranslationContentPolicy.readingOptions(for: session.sourceText)
     }
 
     func closePanel() {

@@ -149,6 +149,18 @@ struct LogicCheck {
         expect(translationMessages[1].content.contains("Good morning"), "translation source included")
         expect(PromptBuilder.translationMessages(sourceText: "你好", targetLanguage: .english)[1].content.contains("译文读音：<IPA 英标>"), "English reading guide")
         expect(PromptBuilder.translationMessages(sourceText: "Hello", targetLanguage: .japanese)[1].content.contains("译文读音：<ふりがな；ローマ字>"), "Japanese reading guide")
+        expect(TranslationContentPolicy.readingOptions(for: "Good morning") == .allEnabled, "short phrase enables reading")
+        expect(TranslationContentPolicy.readingOptions(for: "as soon as possible") == .allEnabled, "short multi-word phrase enables reading")
+        expect(TranslationContentPolicy.readingOptions(for: "早上好") == .allEnabled, "short CJK phrase enables reading")
+        let longReadingOptions = TranslationContentPolicy.readingOptions(for: "The product team needs a clear threshold before rolling out the experiment.")
+        expect(longReadingOptions.sourceEnabled == false, "sentence disables source reading")
+        expect(longReadingOptions.translationEnabled == false, "sentence disables translation reading")
+        expect(TranslationContentPolicy.shouldRequestKeywordExplanation(for: "") == false, "empty text skips keyword explanation")
+        expect(TranslationContentPolicy.shouldRequestKeywordExplanation(for: "   ") == false, "blank text skips keyword explanation")
+        expect(TranslationContentPolicy.shouldRequestKeywordExplanation(for: "threshold"), "single word requests keyword explanation")
+        expect(TranslationContentPolicy.shouldRequestKeywordExplanation(for: "Good morning"), "short phrase requests keyword explanation")
+        expect(TranslationContentPolicy.shouldRequestKeywordExplanation(for: "The product team needs a clear threshold before rolling out the experiment."), "sentence requests keyword explanation")
+        expect(TranslationContentPolicy.shouldRequestKeywordExplanation(for: "这个实验需要一个明确阈值才能发布给所有用户。"), "CJK sentence requests keyword explanation")
         let sourceOnlyMessages = PromptBuilder.translationMessages(
             sourceText: "Good morning",
             targetLanguage: .simplifiedChinese,

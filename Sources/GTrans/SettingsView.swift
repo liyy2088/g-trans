@@ -122,20 +122,6 @@ struct SettingsView: View {
                 }
             }
             settingsGroup {
-                Text("翻译结果")
-                    .font(.callout.weight(.semibold))
-                preferenceRow("显示原文读音") {
-                    Toggle("显示原文读音", isOn: $appState.configuration.sourceReadingEnabled)
-                        .toggleStyle(.switch)
-                        .labelsHidden()
-                }
-                preferenceRow("显示译文读音") {
-                    Toggle("显示译文读音", isOn: $appState.configuration.translationReadingEnabled)
-                        .toggleStyle(.switch)
-                        .labelsHidden()
-                }
-            }
-            settingsGroup {
                 preferenceRow("开机自动启动") {
                     Toggle("开机自动启动", isOn: $appState.configuration.launchAtLogin)
                         .toggleStyle(.switch)

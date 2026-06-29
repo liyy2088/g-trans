@@ -3,6 +3,31 @@ import XCTest
 @testable import GTransCore
 
 final class PromptBuilderTests: XCTestCase {
+    func testTranslationContentPolicyEnablesReadingOnlyForWordsAndShortPhrases() {
+        XCTAssertEqual(TranslationContentPolicy.readingOptions(for: "Good morning"), .allEnabled)
+        XCTAssertEqual(TranslationContentPolicy.readingOptions(for: "as soon as possible"), .allEnabled)
+        XCTAssertEqual(TranslationContentPolicy.readingOptions(for: "早上好"), .allEnabled)
+
+        let sentenceOptions = TranslationContentPolicy.readingOptions(
+            for: "The product team needs a clear threshold before rolling out the experiment."
+        )
+        XCTAssertFalse(sentenceOptions.sourceEnabled)
+        XCTAssertFalse(sentenceOptions.translationEnabled)
+    }
+
+    func testTranslationContentPolicyRequestsKeywordsForAnyNonEmptyText() {
+        XCTAssertFalse(TranslationContentPolicy.shouldRequestKeywordExplanation(for: ""))
+        XCTAssertFalse(TranslationContentPolicy.shouldRequestKeywordExplanation(for: "   "))
+        XCTAssertTrue(TranslationContentPolicy.shouldRequestKeywordExplanation(for: "threshold"))
+        XCTAssertTrue(TranslationContentPolicy.shouldRequestKeywordExplanation(for: "Good morning"))
+        XCTAssertTrue(TranslationContentPolicy.shouldRequestKeywordExplanation(for: "早上好"))
+
+        XCTAssertTrue(TranslationContentPolicy.shouldRequestKeywordExplanation(
+            for: "The product team needs a clear threshold before rolling out the experiment."
+        ))
+        XCTAssertTrue(TranslationContentPolicy.shouldRequestKeywordExplanation(for: "这个实验需要一个明确阈值才能发布给所有用户。"))
+    }
+
     func testTranslationMessagesAskForReadingGuide() {
         let chineseMessages = PromptBuilder.translationMessages(sourceText: "Good morning", targetLanguage: .simplifiedChinese)
         XCTAssertTrue(chineseMessages[0].content.contains("只输出原文读音、译文和译文读音"))

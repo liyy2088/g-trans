@@ -76,7 +76,8 @@ final class TranslationSessionTests: XCTestCase {
     }
 
     func runTranslationRequestsKeywordExplanationAfterTranslation() async throws {
-        let session = TranslationSession(sourceText: "Chronological", targetLanguage: .simplifiedChinese)
+        let sourceText = "The product team needs a clear threshold before rolling out the experiment."
+        let session = TranslationSession(sourceText: sourceText, targetLanguage: .simplifiedChinese)
 
         session.runTranslation(
             client: LLMClient(session: KeywordExplanationStubURLSession()),
@@ -91,10 +92,27 @@ final class TranslationSessionTests: XCTestCase {
         XCTAssertEqual(session.state, .idle)
         XCTAssertEqual(session.lastLLMContextSnapshot?.requestKind, .keywordExplanation)
         XCTAssertEqual(session.lastLLMContextSnapshot?.messages, PromptBuilder.keywordExplanationMessages(
-            sourceText: "Chronological",
+            sourceText: sourceText,
             translation: "按时间顺序的",
             targetLanguage: .simplifiedChinese
         ))
+    }
+
+    func runTranslationRequestsKeywordExplanationForShortText() async throws {
+        let session = TranslationSession(sourceText: "Chronological", targetLanguage: .simplifiedChinese)
+
+        session.runTranslation(
+            client: LLMClient(session: KeywordExplanationStubURLSession()),
+            profile: testProfile,
+            streamingEnabled: false
+        )
+
+        try await waitForKeywordExplanation(in: session)
+
+        XCTAssertEqual(session.translation, "按时间顺序的")
+        XCTAssertEqual(session.keywordExplanation, "chronological — 按时间顺序排列的 — 常用于历史记录、报告、事件列表 — 按时间顺序的")
+        XCTAssertEqual(session.state, .idle)
+        XCTAssertEqual(session.lastLLMContextSnapshot?.requestKind, .keywordExplanation)
     }
 
     func askStoresFollowUpLLMContextSnapshot() throws {
