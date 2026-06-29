@@ -2,7 +2,14 @@
 
 G-Trans 是一个原生 macOS 菜单栏翻译 App。它通过 `Option + Space` 翻译当前选中文本；无法读取选区时回退到手动输入；翻译结果支持复制、重新生成、新翻译和围绕本次翻译继续追问。
 
-当前版本已完成本机 MVP 验收。
+当前版本已完成本机 MVP 验收，仓库公开为源码和本机构建入口。正式分发包、Developer ID 签名和 notarization 仍在后续计划中。
+
+## 项目状态
+
+- 开源协议：MIT，见 `LICENSE`。
+- 当前定位：源码公开、本机验证、早期 MVP。
+- 当前构建：`scripts/build_app.sh` 生成 ad-hoc 签名 app，适合本机安装测试。
+- 尚未提供：正式签名的 release、notarized 安装包、自动更新通道。
 
 ## 运行要求
 
@@ -31,7 +38,7 @@ ditto .build/manual/GTrans.app /Applications/GTrans.app
 open -a /Applications/GTrans.app
 ```
 
-MVP 构建包使用 ad-hoc 签名，面向本机验证。Developer ID 签名和 notarization 留到正式分发阶段处理。
+MVP 构建包使用 ad-hoc 签名，面向本机验证。Developer ID 签名、Hardened Runtime 和 notarization 留到正式分发阶段处理。
 
 ## 配置
 
@@ -79,7 +86,7 @@ G-Trans 需要 macOS 辅助功能权限读取选中文本，并在必要时模�
 - 可以使用快捷追问按钮，或在 `继续追问` 输入框中自由追问。
 - 关闭面板后，本次翻译上下文会被丢弃。
 
-G-Trans 不保存翻译历史，不做遥测。
+G-Trans 不保存翻译历史，不做遥测。翻译文本会发送到用户在设置中配置的 OpenAI-compatible endpoint；如果 endpoint 是远程服务，请确认你信任该服务的数据处理方式。更多信息见 `PRIVACY.md`。
 
 ## 状态栏菜单
 
@@ -102,6 +109,23 @@ G-Trans 不保存翻译历史，不做遥测。
 日志记录启动、快捷键、选区读取、LLM 请求、复制、关闭和错误事件。日志超过约 512 KB 后轮转为 `gtrans.previous.log`。
 
 G-Trans 不会自动上传日志。
+
+## 安全
+
+请不要在 public issue 或 pull request 中粘贴 API Key、私有日志、个人信息或敏感翻译内容。安全问题请按 `SECURITY.md` 说明处理。
+
+## 贡献
+
+贡献前请阅读 `CONTRIBUTING.md`。核心逻辑变更应补充或更新测试；提交 PR 前至少运行：
+
+```bash
+./scripts/check.sh
+./scripts/build_app.sh
+```
+
+## License
+
+MIT. See `LICENSE`.
 
 ## 项目结构
 
